@@ -1,0 +1,53 @@
+#pragma once
+#include <mono/jit/jit.h>
+#include <mono/metadata/assembly.h>
+#include <mono/metadata/object.h>
+#include <mono/metadata/mono-config.h>
+#include "InternalCalls.cpp"
+#include <format>
+#include "Utils.cpp"
+#include "MonoUtils.cpp"
+#include "JNI.cpp"
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "IL2CPP", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP", __VA_ARGS__)
+static std::string DllPath;
+void ExtractMonoIfNecessary() {
+    if (!DirExists(DllPath)) {
+        MakeDirsRecursive(DllPath);
+        std::vector<uint8_t> Zip;
+        if (!ReadAssetToBuffer("Mono/Managed.zip", Zip)) {
+            LOGE("Failed to find Managed dlls in apk assets! did you forget to add them?");
+            return;
+        }
+        ExtractZipBuffer(Zip, DllPath);
+    }
+    if (!DirExists(std::format("{}/mono", InternalPath))) {
+        std::vector<uint8_t> Zip;
+        if (!ReadAssetToBuffer("Mono/Etc.zip", Zip)) {
+            LOGE("Failed to find Mono etc in apk assets! did you forget to add them?");
+            return;
+        }
+        ExtractZipBuffer(Zip, InternalPath);
+    }
+}
+static bool IsMonoReady = false;
+
+
+int InitMono(const char* domain_name) {
+    DllPath = std::format("{}/mono/4.5", ExternalPath);
+    ExtractMonoIfNecessary();
+    mono_set_dirs(ExternalPath, InternalPath);
+    mono_set_assemblies_path(DllPath.c_str());
+    mono_config_parse(nullptr);
+    Domain = mono_jit_init_version(domain_name, "v4.0.30319");
+    if (!Domain) {
+        LOGE("mono_jit_init_version failed — corlib likely not found, check mono/4.5 path");
+        return -1;
+    }
+    LOGI("Mono initialized, domain = %p", Domain);
+    IsMonoReady = true;
+    LoadInterceptors();
+    FlushICallQueue();
+    return 0;
+}
