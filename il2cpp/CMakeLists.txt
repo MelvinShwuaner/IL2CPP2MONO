@@ -4,9 +4,8 @@ project(il2cpp)
 set(CMAKE_CXX_STANDARD 20)
 
 add_library(il2cpp SHARED
-        il2cpp-api.cpp
         include/miniz/miniz.c
-        include/mono/mono.h
+        il2cpp-api.cpp
 )
 target_include_directories(il2cpp PRIVATE
         ${CMAKE_SOURCE_DIR}/include

@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/libil2cpp.iml" filepath="$PROJECT_DIR$/.idea/libil2cpp.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/il2cpp.iml" filepath="$PROJECT_DIR$/.idea/il2cpp.iml" />
     </modules>
   </component>
 </project>

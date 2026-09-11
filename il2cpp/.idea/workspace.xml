@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="CMakePresetLoader"><![CDATA[{
+  "useNewFormat": true
+}]]></component>
+  <component name="CMakeProjectFlavorService">
+    <option name="flavorId" value="CMakePlainProjectFlavor" />
+  </component>
+  <component name="CMakeReloadState">
+    <option name="reloaded" value="true" />
+  </component>
+  <component name="CMakeSettings">
+    <configurations>
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
+    </configurations>
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/.idea/editor.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/.idea/encodings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/encodings.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/.idea/libil2cpp.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/.idea/misc.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/InternalCalls.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/JNI.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/MonoUtils.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/Utils.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/il2cpp-api-types.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/il2cpp-api.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/miniz/miniz.c" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/miniz/miniz.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/cil/opcode.def" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/jit/jit.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/jit/mono-private-unstable.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/appdomain.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/assembly.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/attrdefs.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/blob.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/class.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/debug-helpers.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/debug-mono-symfile.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/environment.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/exception.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/image.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/loader.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/metadata.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/mono-config.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/mono-debug.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/mono-gc.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/mono-private-unstable.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/object-forward.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/object.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/opcodes.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/profiler-events.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/profiler.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/reflection.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/row-indexes.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/sgen-bridge.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/tabledefs.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/threads.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/tokentype.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/metadata/verify.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-counters.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-dl-fallback.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-error.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-forward.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-jemalloc.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-logger.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-private-unstable.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/include/mono/utils/mono-publib.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/2.0/Browsers/Compat.browser" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/2.0/DefaultWsdlHelpGenerator.aspx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/2.0/machine.config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/2.0/settings.map" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/2.0/web.config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.0/Browsers/Compat.browser" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.0/DefaultWsdlHelpGenerator.aspx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.0/machine.config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.0/settings.map" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.0/web.config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.5/Browsers/Compat.browser" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.5/DefaultWsdlHelpGenerator.aspx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.5/machine.config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.5/settings.map" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/4.5/web.config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/browscap.ini" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/Etc/mono/config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libMonoPosixHelper.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libMonoSupportW.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmono-btls-shared.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmono-ee-interp.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmono-native.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmono-profiler-aot.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmono-profiler-coverage.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmono-profiler-log.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/libs/arm64-v8a/libmonosgen-2.0.so" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../libil2cpp/main.cpp" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="aS5m4TdU" />
+  </component>
+  <component name="ProjectApplicationVersion">
+    <option name="ide" value="CLion" />
+    <option name="majorVersion" value="2026" />
+    <option name="minorVersion" value="1.2" />
+    <option name="productBranch" value="Classic" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 2,
+  "fromUser": false
+}]]></component>
+  <component name="ProjectId" id="3JAn9Z6IPhGwSmF0DGxq2aTijnb" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.RadMigrateCodeStyle": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "RunOnceActivity.west.config.association.type.startup.service": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "main",
+    "org.rust.first.attach.projects": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="" />
+      <created>1789112589911</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1789112589911</updated>
+      <workItem from="1789112591115" duration="6000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

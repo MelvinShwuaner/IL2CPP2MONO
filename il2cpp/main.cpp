@@ -39,6 +39,7 @@ int InitMono(const char* domain_name) {
     ExtractMonoIfNecessary();
     mono_set_dirs(ExternalPath, InternalPath);
     mono_set_assemblies_path(DllPath.c_str());
+
     mono_config_parse(nullptr);
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");
     if (!Domain) {
