@@ -35,7 +35,6 @@ static bool ExtractZipBuffer(const std::vector<uint8_t>& zipData, const std::str
         if (!mz_zip_reader_file_stat(&zip, i, &stat)) continue;
 
         std::string outPath = outDir + "/" + stat.m_filename;
-
         if (mz_zip_reader_is_file_a_directory(&zip, i)) {
             MakeDirsRecursive(outPath);
             continue;

@@ -1273,29 +1273,27 @@ Il2CppClass* il2cpp_method_get_class(const MethodInfo *method)
 }
 
 bool il2cpp_method_has_attribute(const MethodInfo *method, Il2CppClass *attr_class)
-{ LOGCALL2();
-    return NULL;//Method::HasAttribute(method, attr_class);
+{ LOGCALL();
+    MonoCustomAttrInfo* attr = mono_custom_attrs_from_method(method->originalMethod);
+    if (!attr) return false;
+    bool result = mono_custom_attrs_has_attr(attr, attr_class->original);
+    mono_custom_attrs_free(attr);
+    return result;
 }
 
 Il2CppClass* il2cpp_method_get_declaring_type(const MethodInfo* method)
-{ LOGCALL2();
-
-    return NULL;
+{ LOGCALL();
+    return method->klass;
 }
 
 uint32_t il2cpp_method_get_flags(const MethodInfo *method, uint32_t *iflags)
-{ LOGCALL2();
-    /*
-    if (iflags != 0)
-        *iflags = Method::GetImplementationFlags(method);
-
-    return Method::GetFlags(method);*/
-    return 0;
+{ LOGCALL();
+    return method->flags;
 }
 
 uint32_t il2cpp_method_get_token(const MethodInfo *method)
-{ LOGCALL2();
-    return NULL;//Method::GetToken(method);
+{ LOGCALL();
+    return method->token;
 }
 
 const char *il2cpp_method_get_param_name(const MethodInfo *method, uint32_t index)
@@ -1306,35 +1304,35 @@ const char *il2cpp_method_get_param_name(const MethodInfo *method, uint32_t inde
 // property
 
 const char* il2cpp_property_get_name(PropertyInfo *prop)
-{ LOGCALL2();
-    return NULL;//Property::GetName(prop);
+{ LOGCALL();
+    return mono_property_get_name((MonoProperty*)prop);
 }
 
 const MethodInfo* il2cpp_property_get_get_method(PropertyInfo *prop)
-{ LOGCALL2();
-    return NULL;//Property::GetGetMethod(prop);
+{ LOGCALL();
+    return WrapMethod(mono_property_get_get_method((MonoProperty*)prop));
 }
 
 const MethodInfo* il2cpp_property_get_set_method(PropertyInfo *prop)
-{ LOGCALL2();
-    return NULL;//Property::GetSetMethod(prop);
+{ LOGCALL();
+    return WrapMethod(mono_property_get_set_method((MonoProperty*)prop));
 }
 
 Il2CppClass* il2cpp_property_get_parent(PropertyInfo *prop)
-{ LOGCALL2();
-    return NULL;//Property::GetParent(prop);
+{ LOGCALL();
+    return WrapClass(mono_property_get_parent((MonoProperty*)prop));
 }
 
 uint32_t il2cpp_property_get_flags(PropertyInfo *prop)
-{ LOGCALL2();
-    return NULL;//Property::GetFlags(prop);
+{ LOGCALL();
+    return mono_property_get_flags((MonoProperty*)prop);
 }
 
 // object
 
 uint32_t il2cpp_object_get_size(Il2CppObject* obj)
-{ LOGCALL2();
-    return NULL;//Object::GetSize(obj);
+{ LOGCALL();
+    return mono_object_get_size((MonoObject*)obj);
 }
 
 void il2cpp_monitor_pulse_all(Il2CppObject* obj)

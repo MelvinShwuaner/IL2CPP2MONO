@@ -48,11 +48,12 @@ static void FlushICallQueue()
 }
 //place all your interceptors here
 namespace Interceptors {
+    /* example of an interceptor
     typedef void (*GetComponentsForListInternal_original)(MonoObject* obj, Il2CppReflectionType* type, MonoObject* list);
     GetComponentsForListInternal_original originalmethod;
     static void GetComponentsForListInternal(MonoObject* obj, Il2CppReflectionType* type, MonoObject* list) {
         originalmethod(obj, type, list);
-    }
+    }*/
 }
 static void LoadInterceptors() {
     //Interceptors::InterceptorMap["UnityEngine.Component::GetComponentsForListInternal"] =

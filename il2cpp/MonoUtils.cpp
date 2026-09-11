@@ -60,10 +60,9 @@ static MethodInfo* WrapMethod(MonoMethod* m)
 
     uint32_t flags, iflags;
     flags = mono_method_get_flags(m, &iflags);
-    if (!sig->has_type_parameters) {
+    if (!sig->has_type_parameters && !(sig->generic_param_count && !m->is_inflated)) {
         info->methodPointer = (Il2CppMethodPointer)mono_compile_method(m);
-    }
-    else {
+    } else {
         info->methodPointer = nullptr;
     }
     info->virtualMethodPointer = info->methodPointer; // same JIT trampoline; refine later if virtual dispatch misbehaves
@@ -89,10 +88,10 @@ static MethodInfo* WrapMethod(MonoMethod* m)
     info->token = mono_method_get_token(m);
     info->flags = (uint16_t)flags;
     info->iflags = (uint16_t)iflags;
-    info->slot = 0; // Mono doesn't expose vtable slot the same way — 0 as a safe-ish default; revisit if virtual dispatch breaks
-    info->is_generic = false;//mono_method_signature(m) && mono_method_is_generic(m) ? 1 : 0;
-    info->is_inflated = false;//mono_method_get_generic_container(m) != nullptr ? 1 : 0;
-    info->wrapper_type = 0; // MONO_WRAPPER_NONE, matches the struct's documented always-zero expectation
+    info->slot = m->slot; // Mono doesn't expose vtable slot the same way — 0 as a safe-ish default; revisit if virtual dispatch breaks
+    info->is_generic = m->is_generic;
+    info->is_inflated = sig->is_inflated;
+    info->wrapper_type = m->wrapper_type; // MONO_WRAPPER_NONE, matches the struct's documented always-zero expectation
     info->has_full_generic_sharing_signature = 0;
     info->originalMethod = m;
     MethodCache[m] = info;

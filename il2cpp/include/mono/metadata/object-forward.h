@@ -11,7 +11,6 @@
 #include <mono/utils/mono-publib.h>
 
 typedef struct _MonoImage MonoImage;
-typedef struct _MonoMethod MonoMethod;
 
 typedef struct _MonoObject MONO_RT_MANAGED_ATTR MonoObject;
 typedef struct _MonoException MONO_RT_MANAGED_ATTR MonoException;

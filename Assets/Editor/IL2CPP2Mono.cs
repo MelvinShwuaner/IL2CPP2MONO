@@ -46,8 +46,8 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
         string assetsDir = Path.Combine(path, "src/main/assets/Mono");
         Directory.CreateDirectory(assetsDir);
         
-        File.Copy("Assets/Editor/Etc.zip",
-                  Path.Combine(assetsDir, "Etc.zip"), true);
+        File.Copy("Assets/Editor/mono.zip",
+                  Path.Combine(assetsDir, "mono.zip"), true);
 
         string Managed = Path.GetDirectoryName(Path.GetDirectoryName(path)) + "/Il2CppBackup/Managed";
         File.Delete(Path.Combine(assetsDir, "Managed.zip"));

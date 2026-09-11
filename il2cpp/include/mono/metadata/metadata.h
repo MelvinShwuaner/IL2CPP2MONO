@@ -308,6 +308,7 @@ typedef struct _MonoGenericParam MonoGenericParam;
 typedef struct _MonoArrayType MonoArrayType;
 typedef uint16_t guint16;
 typedef int16_t gint16;
+typedef uint32_t guint32;
 struct MonoMethodSignature {
 	MonoType     *ret;
 	guint16       param_count;
@@ -322,7 +323,29 @@ struct MonoMethodSignature {
 	unsigned int  suppress_gc_transition : 1;
 	MonoType     *params [MONO_ZERO_LEN_ARRAY];
 };
+struct MonoMethod {
+	guint16 flags;
+	guint16 iflags;
+	guint32 token;
 
+	MonoClass *klass;
+	MonoMethodSignature *signature;
+	const char *name;
+
+	unsigned int inline_info:1;
+	unsigned int inline_failure:1;
+	unsigned int wrapper_type:5;
+	unsigned int string_ctor:1;
+	unsigned int save_lmf:1;
+	unsigned int dynamic:1;
+	unsigned int sre_method:1;
+	unsigned int is_generic:1;
+	unsigned int is_inflated:1;
+	unsigned int skip_visibility:1;
+	unsigned int _unused:2;
+
+	signed int slot:16;
+};
 /* FIXME: Keeping this name alive for now, since it is part of the exposed API, even though no entrypoint uses it.  */
 typedef struct invalid_name MonoGenericMethod;
 
