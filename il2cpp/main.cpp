@@ -34,7 +34,6 @@ void ExtractMonoIfNecessary() {
 }
 static bool IsMonoReady = false;
 
-
 int InitMono(const char* domain_name) {
     DllPath = std::format("{}/mono/4.5", ExternalPath);
     MonoPath = std::format("{}/mono", InternalPath);

@@ -59,6 +59,7 @@ typedef size_t il2cpp_array_size_t;
 #include <string>
 #include <cstring>
 #include <unistd.h>
+//used for debugging when necessary
 #define LOGCALL() //__android_log_print(ANDROID_LOG_DEBUG, "IL2CPP_CALL", "%s", __FUNCTION__);
 #define LOGCALL2() __android_log_print(ANDROID_LOG_DEBUG, "IL2CPP_CALL", "%s", __FUNCTION__);
 #define LOGMSG(...) __android_log_print(ANDROID_LOG_DEBUG, "IL2CPP_CALL", "%s %s", __FUNCTION__, __VA_ARGS__);
@@ -357,7 +358,7 @@ void il2cpp_field_static_set_value(FieldInfo* field, void* value)
 
 Il2CppObject* il2cpp_runtime_invoke(const MethodInfo* method, void* obj, void** params, Il2CppException** exc)
 {
-    //LOGMSG(method->name);
+    //LOGMSG2("%s.%s", method->klass->name, method->name);
     MonoObject* monoExc = nullptr;
     MonoObject* result = mono_runtime_invoke(method->originalMethod, obj, params, &monoExc);
     if (exc) *exc = (Il2CppException*)monoExc;
