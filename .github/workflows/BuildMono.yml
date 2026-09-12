@@ -1,0 +1,104 @@
+name: Build Unity Mono Android ARM64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out Unity Mono
+        uses: actions/checkout@v4
+        with:
+          ref: unity-2022.3-mbe
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            autoconf \
+            automake \
+            bison \
+            build-essential \
+            flex \
+            gettext \
+            libtool \
+            mono-complete \
+            ninja-build \
+            perl \
+            pkg-config \
+            p7zip-full \
+            python3 \
+            rsync \
+            unzip \
+            wget
+
+      - name: Show tool versions
+        run: |
+          gcc --version
+          clang --version || true
+          mono --version
+          python3 --version
+          make --version
+
+      - name: Build Unity Mono ARM64 Android
+        shell: bash
+        run: |
+          set -o pipefail
+
+          make -C sdks/builds \
+            ENABLE_ANDROID=1 \
+            CONFIGURATION=release \
+            -j1 \
+            package-android-arm64-v8a \
+            2>&1 | tee "$GITHUB_WORKSPACE/mono-build.log"
+
+      - name: Show actual build errors
+        if: always()
+        shell: bash
+        run: |
+          echo "===== compiler/build errors ====="
+
+          grep -nEi \
+            'error CS[0-9]+|error [A-Z]+[0-9]+|fatal error|Unhandled Exception|Unhandled exception|Exception:|command not found|No such file|failed' \
+            mono-build.log || true
+
+          echo
+          echo "===== last 300 lines ====="
+          tail -n 300 mono-build.log
+
+      - name: Show generated artifacts
+        if: success()
+        shell: bash
+        run: |
+          echo "===== ARM64 artifacts ====="
+          find sdks -type f \
+            \( -name '*.so' -o -name '*.dll' -o -name '*.zip' -o -name '*.tar.gz' \) \
+            -print
+
+      - name: Upload ARM64 Mono build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-2022.3-android-arm64
+          path: |
+            sdks/out/**
+            sdks/builds/out/**
+          if-no-files-found: warn
+          compression-level: 6
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-build-log
+          path: mono-build.log
+          if-no-files-found: error
+          compression-level: 6
