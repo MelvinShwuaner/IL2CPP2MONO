@@ -8,6 +8,7 @@
 #include "Utils.cpp"
 #include "MonoUtils.cpp"
 #include "JNI.cpp"
+#include "Debug.cpp"
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "IL2CPP", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP", __VA_ARGS__)
@@ -51,5 +52,6 @@ int InitMono(const char* domain_name) {
     IsMonoReady = true;
     LoadInterceptors();
     FlushICallQueue();
+    BeginDebugging();
     return 0;
 }
