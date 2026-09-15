@@ -3,8 +3,7 @@ a unity mod that adds support for mono on arm64 (android). will be made useless 
 
 # Current problems:
 
--Serialization: unity corrupts serialized fields, likely due to misplaced offsets? needs more study
-
+-Something involving timelines. not sure why the track asset's timeline asset is null
 
 # how does it work?
 
