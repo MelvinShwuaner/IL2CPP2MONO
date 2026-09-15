@@ -28,7 +28,10 @@
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/main.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Debug.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Debug.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Utils.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Utils.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/il2cpp-api.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/il2cpp-api.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -56,9 +59,9 @@
   &quot;fromUser&quot;: false
 }</component>
   <component name="ProjectId" id="3JAn9Z6IPhGwSmF0DGxq2aTijnb" />
-  <component name="ProjectStatusUIService"><![CDATA[{
-  "uiKindId": "Widget"
-}]]></component>
+  <component name="ProjectStatusUIService">{
+  &quot;uiKindId&quot;: &quot;Widget&quot;
+}</component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -88,6 +91,11 @@
   }
 }</component>
   <component name="RunManager">
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="il2cpp" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="il2cpp" TARGET_NAME="il2cpp" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -108,7 +116,8 @@
       <workItem from="1789112610799" duration="542000" />
       <workItem from="1789116771729" duration="7379000" />
       <workItem from="1789147286829" duration="1930000" />
-      <workItem from="1789154214646" duration="2605000" />
+      <workItem from="1789154214646" duration="4714000" />
+      <workItem from="1789203738713" duration="17205000" />
     </task>
     <servers />
   </component>

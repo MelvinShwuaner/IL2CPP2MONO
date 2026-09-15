@@ -1,9 +1,20 @@
 #pragma once
 #include <string>
+#include <unistd.h>
 #include <vector>
 #include <android/log.h>
 #include <miniz/miniz.h>
 #include <sys/stat.h>
+#include <elf.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <dlfcn.h>
+#include <fstream>
+
+typedef Elf64_Ehdr Elf_Ehdr;
+typedef Elf64_Shdr Elf_Shdr;
+typedef Elf64_Sym Elf_Sym;
+
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP Utils", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP Utils", __VA_ARGS__)
 static void MakeDirsRecursive(const std::string& path) {

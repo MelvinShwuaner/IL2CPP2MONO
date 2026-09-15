@@ -15,6 +15,7 @@ target_link_directories(il2cpp PRIVATE
 )
 target_link_libraries(il2cpp PRIVATE
         monosgen-2.0
+        dobby
         log
         android
 )
