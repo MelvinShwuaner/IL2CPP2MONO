@@ -86,23 +86,6 @@ jobs:
           echo "===== last 300 lines ====="
           tail -n 300 mono-build.log
 
-      - name: Inspect resulting GC symbols
-        if: success()
-        shell: bash
-        run: |
-          echo "===== SGen/GC symbols ====="
-
-          find sdks/out/android-arm64-v8a-release/lib/
-            -type f \
-            -name 'libmonosgen-2.0.so' \
-            -print \
-            -exec sh -c '
-              echo "---- $1 ----"
-              readelf -Ws "$1" 2>/dev/null |
-                grep -E "mono_gc_(stop_world|restart_world)|sgen_(stop_world|restart_world)" ||
-                true
-            ' _ {} \;
-
       - name: Show generated artifacts
         if: success()
         shell: bash
