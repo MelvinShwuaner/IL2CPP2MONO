@@ -14,6 +14,7 @@ jobs:
       - name: Check out Unity Mono
         uses: actions/checkout@v4
         with:
+          repository: Unity-Technologies/mono
           ref: unity-2022.3-mbe
           submodules: recursive
           fetch-depth: 1
@@ -48,6 +49,17 @@ jobs:
           python3 --version
           make --version
 
+      - name: Inspect GC/build configuration
+        shell: bash
+        run: |
+          echo "===== Build variables mentioning GC/SGen ====="
+          grep -RniE \
+            'sgen|boehm|garbage.?collector|ENABLE_.*GC|USE_.*GC' \
+            sdks/builds \
+            configure.ac \
+            Makefile* \
+            2>/dev/null || true
+
       - name: Build Unity Mono ARM64 Android
         shell: bash
         run: |
@@ -73,6 +85,23 @@ jobs:
           echo
           echo "===== last 300 lines ====="
           tail -n 300 mono-build.log
+
+      - name: Inspect resulting GC symbols
+        if: success()
+        shell: bash
+        run: |
+          echo "===== SGen/GC symbols ====="
+
+          find sdks/out sdks/builds/out \
+            -type f \
+            -name 'libmonosgen-2.0.so' \
+            -print \
+            -exec sh -c '
+              echo "---- $1 ----"
+              readelf -Ws "$1" 2>/dev/null |
+                grep -E "mono_gc_(stop_world|restart_world)|sgen_(stop_world|restart_world)" ||
+                true
+            ' _ {} \;
 
       - name: Show generated artifacts
         if: success()
