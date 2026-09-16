@@ -52,6 +52,8 @@ int InitMono(const char* domain_name) {
     IsMonoReady = true;
     LoadInterceptors();
     FlushICallQueue();
+    ResolveAPI();
     BeginDebugging();
+
     return 0;
 }

@@ -1,7 +1,7 @@
 #pragma once
 #include <unordered_map>
 #include <android/log.h>
-
+#include "Utils.cpp"
 #include "il2cpp-api-types.h"
 #include "mono/metadata/assembly.h"
 #include "mono/metadata/object-forward.h"
@@ -10,11 +10,19 @@
 #include "mono/metadata/appdomain.h"
 #include <mono/metadata/threads.h>
 #include <mutex>
-
+#include "mono/metadata/mono-gc.h"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Mono", __VA_ARGS__)
 static std::unordered_map<MonoMethod*, MethodInfo*> MethodCache;
 static std::unordered_map<MonoClass*, Il2CppClass*> ClassCache;
 static std::mutex Mutex;
+
+static void ResolveAPI() {
+    std::string path = GetLibraryPath("libmonosgen-2.0.so");
+    //LOGI("path: %s", path.c_str());
+    uintptr_t base = GetModuleBase(path.c_str(), "mono_domain_get");
+    mono_stop_gc_world = reinterpret_cast<VoidFunction>(GetVAFromLib(path.c_str(), "mono_gc_stop_world", base));
+    mono_start_gc_world = reinterpret_cast<VoidFunction>(GetVAFromLib(path.c_str(), "mono_gc_restart_world", base));
+   }
 static Il2CppClass* WrapClass(MonoClass* m, bool Lock = true) {
     if (!m) return nullptr;
     std::unique_lock guard(Mutex, std::defer_lock);
