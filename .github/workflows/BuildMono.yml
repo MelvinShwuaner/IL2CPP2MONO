@@ -14,6 +14,7 @@ jobs:
       - name: Check out Unity Mono
         uses: actions/checkout@v4
         with:
+          repository: Unity-Technologies/mono
           ref: unity-2022.3-mbe
           submodules: recursive
           fetch-depth: 1
@@ -47,6 +48,17 @@ jobs:
           mono --version
           python3 --version
           make --version
+
+      - name: Inspect GC/build configuration
+        shell: bash
+        run: |
+          echo "===== Build variables mentioning GC/SGen ====="
+          grep -RniE \
+            'sgen|boehm|garbage.?collector|ENABLE_.*GC|USE_.*GC' \
+            sdks/builds \
+            configure.ac \
+            Makefile* \
+            2>/dev/null || true
 
       - name: Build Unity Mono ARM64 Android
         shell: bash
