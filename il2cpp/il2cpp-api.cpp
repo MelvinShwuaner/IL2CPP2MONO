@@ -873,7 +873,7 @@ extern Il2CppRuntimeStats il2cpp_runtime_stats{};
 
 
 uint64_t il2cpp_stats_get_value(Il2CppStat stat)
-{ LOGCALL2();
+{ LOGCALL();
 
     switch (stat)
     {
@@ -928,7 +928,7 @@ uint64_t il2cpp_stats_get_value(Il2CppStat stat)
     return 0;
 }
 bool il2cpp_stats_dump_to_file(const char *path)
-{ LOGCALL2();
+{ LOGCALL();
     std::fstream fs;
 
     fs.open(path, std::fstream::out | std::fstream::trunc);
@@ -953,7 +953,7 @@ void il2cpp_format_stack_trace(const Il2CppException* ex, char* output, int outp
 }
 
 void il2cpp_unhandled_exception(Il2CppException* exc)
-{ LOGCALL2();
+{ LOGCALL();
    mono_unhandled_exception(&((MonoException*)exc)->object);
 }
 
@@ -1025,7 +1025,7 @@ const Il2CppType* il2cpp_field_get_type(FieldInfo *field)
 }
 
 Il2CppObject* il2cpp_field_get_value_object(FieldInfo *field, Il2CppObject *obj)
-{ LOGCALL2();
+{ LOGCALL();
     return (Il2CppObject*)mono_field_get_value_object(Domain, (MonoClassField*)field, (MonoObject*)obj);
 }
 

@@ -1,6 +1,5 @@
 #pragma once
 #include <unordered_map>
-#include <android/log.h>
 #include "il2cpp-api-types.h"
 #include "mono/metadata/assembly.h"
 #include "mono/metadata/object-forward.h"
@@ -10,7 +9,6 @@
 #include <mono/metadata/threads.h>
 #include <mutex>
 #include "mono/metadata/mono-gc.h"
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Mono", __VA_ARGS__)
 static std::unordered_map<MonoMethod*, MethodInfo*> MethodCache;
 static std::unordered_map<MonoClass*, Il2CppClass*> ClassCache;
 static std::mutex Mutex;
@@ -64,13 +62,13 @@ static MonoThread* AttachThreadIfNeeded() {
     }
     return nullptr;
 }
+static MonoClass* MonitorClass = nullptr;
 static MonoClass* GetMonitorClass()
 {
-    static MonoClass* s_monitorClass = nullptr;
-    if (!s_monitorClass) {
-        s_monitorClass = mono_class_from_name(mono_get_corlib(), "System.Threading", "Monitor");
+    if (!MonitorClass) {
+        MonitorClass = mono_class_from_name(mono_get_corlib(), "System.Threading", "Monitor");
     }
-    return s_monitorClass;
+    return MonitorClass;
 }
 static MethodInfo* WrapMethod(MonoMethod* m)
 {
@@ -88,12 +86,12 @@ static MethodInfo* WrapMethod(MonoMethod* m)
     uint32_t flags, iflags;
     flags = mono_method_get_flags(m, &iflags);
     if (!sig->has_type_parameters && !(sig->generic_param_count && !m->is_inflated)) {
-        info->methodPointer = nullptr;//(Il2CppMethodPointer)mono_compile_method(m);
+        info->methodPointer = nullptr;//(Il2CppMethodPointer)mono_compile_method(m); we cant init the classes so early. and it also looks like unity doesn't use the methodpointer, atleast for now.
     } else {
         info->methodPointer = nullptr;
     }
     info->virtualMethodPointer = info->methodPointer; // same JIT trampoline; refine later if virtual dispatch misbehaves
-    info->invoker_method = nullptr; // see note below — likely needs a real invoker eventually
+    info->invoker_method = nullptr;
     info->name = m->name;
     info->klass = WrapClass(mono_method_get_class(m), false);
     info->return_type = (const Il2CppType*)mono_signature_get_return_type(sig);
@@ -128,21 +126,4 @@ const char* GetAssemblyName(MonoClass* klass) {
     MonoImage* image = mono_class_get_image(klass);
     MonoAssembly* assembly = mono_image_get_assembly(image);
     return mono_assembly_name_get_name(mono_assembly_get_name(assembly));
-}
-static void LogObject(MonoObject* exc, const char* context = "")
-{
-    MonoObject* toStringExc = nullptr;
-    MonoString* str = mono_object_to_string(exc, &toStringExc);
-    if (toStringExc) {
-        LOGE("[%s] Exception occurred formatting MonoObject!", context);
-        return;
-    }
-
-    if (!str) {
-        LOGE("[%s] MonoObject string is null!", context);
-        return;
-    }
-    char* utf8 = mono_string_to_utf8(str);
-    LOGE("[%s] MonoObject: %s", context, utf8);
-    mono_free(utf8);
 }

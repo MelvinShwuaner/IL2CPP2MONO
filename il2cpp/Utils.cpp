@@ -11,12 +11,7 @@
 #include <dlfcn.h>
 #include <fstream>
 
-typedef Elf64_Ehdr Elf_Ehdr;
-typedef Elf64_Shdr Elf_Shdr;
-typedef Elf64_Sym Elf_Sym;
-
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP Utils", __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP Utils", __VA_ARGS__)
 static void MakeDirsRecursive(const std::string& path) {
     std::string current;
     size_t pos = 0;
