@@ -1,10 +1,6 @@
 # IL2CPP2MONO
 a unity mod that adds support for mono on arm64 (android). will be made useless once coreclr is added to android lolll
 
-# Current problems:
-
--Something involving timelines. not sure why the track asset's timeline asset is null
-
 # how does it work?
 
 it works by replacing the original libil2cpp with a fake, a larper if you will. this fake forwards the calls to mono. and also handles the dlls and stuff.

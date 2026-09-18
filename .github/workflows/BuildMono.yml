@@ -48,17 +48,38 @@ jobs:
           mono --version
           python3 --version
           make --version
+          autoconf --version | head -n 1
+          automake --version | head -n 1
 
-      - name: Inspect GC/build configuration
+      - name: Configure Mono for Boehm GC
         shell: bash
         run: |
-          echo "===== Build variables mentioning GC/SGen ====="
-          grep -RniE \
-            'sgen|boehm|garbage.?collector|ENABLE_.*GC|USE_.*GC' \
-            sdks/builds \
-            configure.ac \
-            Makefile* \
-            2>/dev/null || true
+          set -e
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("sdks/builds/android.mk")
+          text = path.read_text()
+
+          text = text.replace(
+              "\t--disable-boehm \\\n",
+              "\t--enable-boehm \\\n"
+          )
+
+          # Explicitly disable SGen so Mono.Native links against libmonoboehm.
+          if "\t--with-sgen=no \\\n" not in text:
+              text = text.replace(
+                  "\t--enable-boehm \\\n",
+                  "\t--enable-boehm \\\n"
+                  "\t--with-sgen=no \\\n"
+              )
+
+          path.write_text(text)
+          PY
+
+          grep -nE 'enable-boehm|disable-boehm|with-sgen' \
+            sdks/builds/android.mk
 
       - name: Build Unity Mono ARM64 Android
         shell: bash
@@ -80,7 +101,8 @@ jobs:
 
           grep -nEi \
             'error CS[0-9]+|error [A-Z]+[0-9]+|fatal error|Unhandled Exception|Unhandled exception|Exception:|command not found|No such file|failed' \
-            mono-build.log || true
+            mono-build.log \
+            || true
 
           echo
           echo "===== last 300 lines ====="
@@ -91,15 +113,22 @@ jobs:
         shell: bash
         run: |
           echo "===== ARM64 artifacts ====="
+
           find sdks -type f \
-            \( -name '*.so' -o -name '*.dll' -o -name '*.zip' -o -name '*.tar.gz' \) \
-            -print
+            \( \
+              -name '*.so' \
+              -o -name '*.dll' \
+              -o -name '*.zip' \
+              -o -name '*.tar.gz' \
+            \) \
+            -print \
+            | sort
 
       - name: Upload ARM64 Mono build
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: unity-mono-2022.3-android-arm64
+          name: unity-mono-2022.3-android-arm64-boehm
           path: |
             sdks/out/**
             sdks/builds/out/**
