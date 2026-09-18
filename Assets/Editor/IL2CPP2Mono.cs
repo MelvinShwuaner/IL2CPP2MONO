@@ -12,7 +12,6 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
 
     public void OnPostGenerateGradleAndroidProject(string path)
     {
-        // 'path' is the unityLibrary module root
         string buildGradlePath = Path.Combine(path, "build.gradle");
         string buildGradle = File.ReadAllText(buildGradlePath);
 
@@ -33,16 +32,14 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
         {
             Directory.Delete(cppDir, true);
         }
-
-        // Drop your prebuilt shim + Mono runtime straight into jniLibs —
-        // AGP packages anything here into the APK with no compile step
+        
         string jniLibsDir = Path.Combine(path, "src/main/jniLibs/arm64-v8a");
         foreach (var file in Directory.GetFiles("Assets/Editor/Libs/").Where((s => s.EndsWith(".so"))))
         {
             File.Copy(file, Path.Combine(jniLibsDir, Path.GetFileName(file)), true);
         }
 
-        // Copy your assets (Managed.zip, MonoEtc.zip) into the module's assets folder
+        // Copy the assets (Managed.zip, mono.zip) into the apk's assets folder
         string assetsDir = Path.Combine(path, "src/main/assets/Mono");
         Directory.CreateDirectory(assetsDir);
         

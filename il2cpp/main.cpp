@@ -43,7 +43,7 @@ int InitMono(const char* domain_name) {
     mono_config_parse (NULL);
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");
     if (!Domain) {
-        LOGE("mono_jit_init_version failed — corlib likely not found, check mono/4.5 path");
+        LOGE("mono_jit_init_version failed — corlib likely not found, check managed path");
         return -1;
     }
     LOGI("Mono initialized, domain = %p", Domain);
