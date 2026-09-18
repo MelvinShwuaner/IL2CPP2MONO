@@ -90,26 +90,6 @@ jobs:
           grep -n -E 'disable-boehm|enable-boehm|with-sgen' \
             sdks/builds/android.mk || true
 
-      - name: Inspect GC/build configuration
-        shell: bash
-        run: |
-          echo "===== Build variables mentioning GC/SGen/Boehm ====="
-
-          grep -RniE \
-            'sgen|boehm|garbage.?collector|ENABLE_.*GC|USE_.*GC|SUPPORT_BOEHM|SUPPORT_SGEN' \
-            sdks/builds \
-            configure.ac \
-            Makefile* \
-            2>/dev/null || true
-
-          echo
-          echo "===== Android configure flags ====="
-
-          grep -n -A20 -B2 \
-            '_android-.*_CONFIGURE_FLAGS' \
-            sdks/builds/android.mk \
-            2>/dev/null || true
-
       - name: Build Unity Mono ARM64 Android
         shell: bash
         run: |
@@ -121,59 +101,6 @@ jobs:
             -j1 \
             package-android-arm64-v8a \
             2>&1 | tee "$GITHUB_WORKSPACE/mono-build.log"
-
-      - name: Inspect generated libraries
-        if: always()
-        shell: bash
-        run: |
-          echo "===== Shared libraries containing Mono ====="
-
-          find sdks -type f -name '*.so' \
-            -print | sort
-
-          echo
-          echo "===== Libraries with GC/liveness symbols ====="
-
-          while IFS= read -r lib; do
-            echo
-            echo "----- $lib -----"
-
-            nm -D "$lib" 2>/dev/null | \
-              grep -E \
-                'mono_(unity_)?liveness|mono_gc|sgen|boehm' \
-              || true
-          done < <(
-            find sdks -type f -name '*.so' -print | sort
-          )
-
-      - name: Verify Boehm liveness symbols
-        if: always()
-        shell: bash
-        run: |
-          echo "===== Searching for mono_unity_liveness_* ====="
-
-          found=0
-
-          while IFS= read -r lib; do
-            matches="$(
-              nm -D "$lib" 2>/dev/null |
-              grep 'mono_unity_liveness_' || true
-            )"
-
-            if [ -n "$matches" ]; then
-              echo
-              echo "----- $lib -----"
-              echo "$matches"
-              found=1
-            fi
-          done < <(
-            find sdks -type f -name '*.so' -print | sort
-          )
-
-          if [ "$found" -eq 0 ]; then
-            echo
-            echo "WARNING: No exported mono_unity_liveness_* symbols found."
-          fi
 
       - name: Show actual build errors
         if: always()
