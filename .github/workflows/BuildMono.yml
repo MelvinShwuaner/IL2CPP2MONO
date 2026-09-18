@@ -51,17 +51,10 @@ jobs:
           autoconf --version | head -n 1
           automake --version | head -n 1
 
-      - name: Enable Boehm GC for Android
+      - name: Configure Mono for Boehm GC
         shell: bash
         run: |
           set -e
-
-          echo "===== Original Android GC configuration ====="
-          grep -n -E 'disable-boehm|enable-boehm|with-sgen' \
-            sdks/builds/android.mk || true
-
-          echo
-          echo "===== Patching Android build ====="
 
           python3 - <<'PY'
           from pathlib import Path
@@ -69,26 +62,24 @@ jobs:
           path = Path("sdks/builds/android.mk")
           text = path.read_text()
 
-          old = "\t--disable-boehm \\\n"
-          new = "\t--enable-boehm \\\n"
+          text = text.replace(
+              "\t--disable-boehm \\\n",
+              "\t--enable-boehm \\\n"
+          )
 
-          count = text.count(old)
-
-          if count == 0:
-              raise SystemExit(
-                  "Could not find --disable-boehm in sdks/builds/android.mk"
+          # Explicitly disable SGen so Mono.Native links against libmonoboehm.
+          if "\t--with-sgen=no \\\n" not in text:
+              text = text.replace(
+                  "\t--enable-boehm \\\n",
+                  "\t--enable-boehm \\\n"
+                  "\t--with-sgen=no \\\n"
               )
 
-          text = text.replace(old, new)
-
           path.write_text(text)
-          print(f"Replaced {count} occurrence(s) of --disable-boehm")
           PY
 
-          echo
-          echo "===== Patched Android GC configuration ====="
-          grep -n -E 'disable-boehm|enable-boehm|with-sgen' \
-            sdks/builds/android.mk || true
+          grep -nE 'enable-boehm|disable-boehm|with-sgen' \
+            sdks/builds/android.mk
 
       - name: Build Unity Mono ARM64 Android
         shell: bash
