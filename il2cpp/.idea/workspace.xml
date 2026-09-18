@@ -27,14 +27,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Debug.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Debug.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/MonoUtils.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/MonoUtils.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Utils.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Utils.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/il2cpp-api.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/il2cpp-api.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/include/mono/metadata/mono-gc.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/mono/metadata/mono-gc.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/main.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -122,7 +115,7 @@
       <workItem from="1789154214646" duration="4714000" />
       <workItem from="1789203738713" duration="17205000" />
       <workItem from="1789482699606" duration="1835000" />
-      <workItem from="1789492301440" duration="6476000" />
+      <workItem from="1789492301440" duration="7288000" />
     </task>
     <servers />
   </component>

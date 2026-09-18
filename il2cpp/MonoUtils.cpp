@@ -1,7 +1,6 @@
 #pragma once
 #include <unordered_map>
 #include <android/log.h>
-#include "Utils.cpp"
 #include "il2cpp-api-types.h"
 #include "mono/metadata/assembly.h"
 #include "mono/metadata/object-forward.h"
@@ -16,13 +15,33 @@ static std::unordered_map<MonoMethod*, MethodInfo*> MethodCache;
 static std::unordered_map<MonoClass*, Il2CppClass*> ClassCache;
 static std::mutex Mutex;
 
-static void ResolveAPI() {
-    std::string path = GetLibraryPath("libmonosgen-2.0.so");
-    //LOGI("path: %s", path.c_str());
-    uintptr_t base = GetModuleBase(path.c_str(), "mono_domain_get");
-    mono_stop_gc_world = reinterpret_cast<VoidFunction>(GetVAFromLib(path.c_str(), "mono_gc_stop_world", base));
-    mono_start_gc_world = reinterpret_cast<VoidFunction>(GetVAFromLib(path.c_str(), "mono_gc_restart_world", base));
-   }
+static void liveness_register_trampoline(
+    gpointer* arr,
+    int size,
+    void* userdata)
+{
+    auto* bridge = static_cast<Il2CppLivenessState*>(userdata);
+
+    bridge->register_callback(
+        reinterpret_cast<Il2CppObject**>(arr),
+        size,
+        bridge->il2cpp_userdata);
+}
+
+static void* liveness_reallocate_trampoline(
+    void* ptr,
+    int size,
+    void* userdata)
+{
+    auto* bridge = static_cast<Il2CppLivenessState*>(userdata);
+
+    return bridge->reallocate_callback(
+        ptr,
+        static_cast<size_t>(size),
+        bridge->il2cpp_userdata);
+}
+
+
 static Il2CppClass* WrapClass(MonoClass* m, bool Lock = true) {
     if (!m) return nullptr;
     std::unique_lock guard(Mutex, std::defer_lock);
@@ -69,13 +88,13 @@ static MethodInfo* WrapMethod(MonoMethod* m)
     uint32_t flags, iflags;
     flags = mono_method_get_flags(m, &iflags);
     if (!sig->has_type_parameters && !(sig->generic_param_count && !m->is_inflated)) {
-        info->methodPointer = (Il2CppMethodPointer)mono_compile_method(m);
+        info->methodPointer = nullptr;//(Il2CppMethodPointer)mono_compile_method(m);
     } else {
         info->methodPointer = nullptr;
     }
     info->virtualMethodPointer = info->methodPointer; // same JIT trampoline; refine later if virtual dispatch misbehaves
     info->invoker_method = nullptr; // see note below — likely needs a real invoker eventually
-    info->name = mono_method_get_name(m);
+    info->name = m->name;
     info->klass = WrapClass(mono_method_get_class(m), false);
     info->return_type = (const Il2CppType*)mono_signature_get_return_type(sig);
 

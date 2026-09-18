@@ -8,7 +8,6 @@
 #include "Utils.cpp"
 #include "MonoUtils.cpp"
 #include "JNI.cpp"
-#include "Debug.cpp"
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "IL2CPP", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP", __VA_ARGS__)
@@ -36,13 +35,12 @@ void ExtractMonoIfNecessary() {
 static bool IsMonoReady = false;
 
 int InitMono(const char* domain_name) {
-    DllPath = std::format("{}/mono/4.5", ExternalPath);
+    DllPath = std::format("{}/mono", ExternalPath);
     MonoPath = std::format("{}/mono", InternalPath);
     ExtractMonoIfNecessary();
     mono_set_dirs(std::format("{}/lib", MonoPath).c_str(), MonoPath.c_str());
     mono_set_assemblies_path(DllPath.c_str());
     mono_config_parse (NULL);
-
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");
     if (!Domain) {
         LOGE("mono_jit_init_version failed — corlib likely not found, check mono/4.5 path");
@@ -52,8 +50,5 @@ int InitMono(const char* domain_name) {
     IsMonoReady = true;
     LoadInterceptors();
     FlushICallQueue();
-    ResolveAPI();
-    BeginDebugging();
-
     return 0;
 }

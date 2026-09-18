@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-
+#include "mono/metadata/unity-liveness.h"
 #include "mono/metadata/metadata.h"
 #include "mono/metadata/object-forward.h"
 
@@ -243,7 +243,13 @@ typedef void (*Il2CppProfileGCFunc) (Il2CppProfiler* prof, Il2CppGCEvent event, 
 typedef void (*Il2CppProfileGCResizeFunc) (Il2CppProfiler* prof, int64_t new_size);
 typedef void (*Il2CppProfileFileIOFunc) (Il2CppProfiler* prof, Il2CppProfileFileIOKind kind, int count);
 typedef void (*Il2CppProfileThreadFunc) (Il2CppProfiler *prof, unsigned long tid);
-
+struct Il2CppLivenessState
+{
+    LivenessState* mono_state;
+    il2cpp_register_object_callback register_callback;
+    il2cpp_liveness_reallocate_callback reallocate_callback;
+    void* il2cpp_userdata;
+};
 typedef const Il2CppNativeChar* (*Il2CppSetFindPlugInCallback)(const Il2CppNativeChar*);
 typedef void (*Il2CppLogCallback)(const char*);
 

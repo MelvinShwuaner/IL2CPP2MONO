@@ -135,6 +135,3 @@ mono_gc_init_finalizer_thread (void);
 MONO_END_DECLS
 
 #endif /* __METADATA_MONO_GC_H__ */
-typedef void (*VoidFunction)();
-VoidFunction mono_stop_gc_world;
-VoidFunction mono_start_gc_world;

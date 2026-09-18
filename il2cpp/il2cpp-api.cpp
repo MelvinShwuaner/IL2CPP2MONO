@@ -51,6 +51,7 @@
 
 #include "il2cpp-api-types.h"
 #include "main.cpp"
+#include "mono/metadata/unity-liveness.h"
 typedef size_t il2cpp_array_size_t;
 #include <mono/jit/jit.h>
 #include <mono/metadata/exception.h>
@@ -150,7 +151,7 @@ const Il2CppAssembly* il2cpp_domain_assembly_open(Il2CppDomain* domain, const ch
     if (!asm_) {
         LOGW("missing assembly %s", path.c_str());
     }
-    return (const Il2CppAssembly*)asm_;
+    return reinterpret_cast<Il2CppAssembly *>(asm_);
 }
 
 const Il2CppAssembly** il2cpp_domain_get_assemblies(const Il2CppDomain* domain, size_t* size)
@@ -220,7 +221,6 @@ FieldInfo* il2cpp_class_get_field_from_name(Il2CppClass* klass, const char* name
 
 const MethodInfo* il2cpp_class_get_methods(Il2CppClass* klass, void** iter)
 {
-  //  LOGCALL();
     return WrapMethod(mono_class_get_methods(klass->original, iter));
 }
 
@@ -380,7 +380,7 @@ Il2CppObject* il2cpp_runtime_invoke_convert_args(const MethodInfo* method, void*
 
     for (int i = 0; i < paramCount; i++) {
         MonoType* paramType = mono_signature_get_params(sig, &iter);
-        MonoObject* argObj = (MonoObject*)params[i];
+        auto* argObj = (MonoObject*)params[i];
 
         if (argObj && mono_type_is_struct(paramType)) {
             // Value type — unbox to get a pointer to the raw data
@@ -605,7 +605,7 @@ void il2cpp_shutdown()
 
 void il2cpp_set_config_dir(const char *config_path)
 {
-    LOGCALL();
+    LOGCALL2();
     //il2cpp::vm::Runtime::SetConfigDir(config_path);
 }
 
@@ -617,38 +617,38 @@ void il2cpp_set_data_dir(const char *data_path)
 
 void il2cpp_set_temp_dir(const char *temp_dir)
 {
-    LOGCALL();
+    LOGCALL2();
   //  il2cpp::vm::Path::SetTempPath(temp_dir);
 }
 
 void il2cpp_set_commandline_arguments(int argc, const char* const argv[], const char* basedir)
 {
-    LOGCALL();
+    LOGCALL2();
 
     //il2cpp::utils::Environment::SetMainArgs(argv, argc);
 }
 
 void il2cpp_set_commandline_arguments_utf16(int argc, const Il2CppChar* const argv[], const char* basedir)
 {
-    LOGCALL();
+    LOGCALL2();
     //il2cpp::utils::Environment::SetMainArgs(argv, argc);
 }
 
 void il2cpp_set_config_utf16(const Il2CppChar* executablePath)
 {
-    LOGCALL();
+    LOGCALL2();
     //il2cpp::vm::Runtime::SetConfigUtf16(executablePath);
 }
 
 void il2cpp_set_config(const char* executablePath)
 {
-    LOGCALL();
+    LOGCALL2();
    // il2cpp::vm::Runtime::SetConfig(executablePath);
 }
 
 void il2cpp_set_memory_callbacks(Il2CppMemoryCallbacks* callbacks)
 {
-    LOGCALL();
+    LOGCALL2();
     //Memory::SetMemoryCallbacks(callbacks);
 }
 static size_t RegionSize; //lol
@@ -667,7 +667,7 @@ size_t il2cpp_memory_pool_get_region_size()
 void* il2cpp_alloc(size_t size)
 {
     LOGCALL2();
-    return 0;
+    return nullptr;
     //return IL2CPP_MALLOC(size);
 }
 
@@ -808,8 +808,7 @@ bool il2cpp_class_is_abstract(const Il2CppClass *klass)
     
     auto flags = mono_class_get_flags(klass->original);
     bool is_abstract = (flags & TYPE_ATTRIBUTE_ABSTRACT) != 0;
-    bool is_interface = (flags & TYPE_ATTRIBUTE_INTERFACE) != 0;
-    return is_abstract && !is_interface;
+    return is_abstract;
 }
 
 bool il2cpp_class_is_interface(const Il2CppClass *klass)
@@ -842,7 +841,7 @@ const char *il2cpp_class_get_assemblyname(const Il2CppClass *klass)
 }
 
 int il2cpp_class_get_rank(const Il2CppClass *klass)
-{ LOGCALL2();
+{ LOGCALL();
     return mono_class_get_rank(klass->original);
 }
 
@@ -1040,8 +1039,9 @@ bool il2cpp_field_has_attribute(FieldInfo *field, Il2CppClass *attr_class)
 }
 
 void il2cpp_field_set_value_object(Il2CppObject* objectInstance, FieldInfo* field, Il2CppObject* value)
-{ LOGCALL2();
-    //Field::SetInstanceFieldValueObject(objectInstance, field, value);
+{ LOGCALL();
+    MonoObject* v = (MonoObject*)value;
+    mono_field_set_value((MonoObject*)objectInstance, (MonoClassField*)field, &v);
 }
 
 bool il2cpp_field_is_literal(FieldInfo *field)
@@ -1056,9 +1056,8 @@ void il2cpp_gc_collect(int maxGenerations)
 }
 
 int32_t il2cpp_gc_collect_a_little()
-{ LOGCALL2();
-    //return mono_gc_collect_a_little();
-    return 0; //missing for some reason?
+{ LOGCALL();
+    return mono_gc_collect_a_little();
 }
 
 void il2cpp_gc_start_incremental_collection()
@@ -1122,14 +1121,12 @@ void il2cpp_gc_foreach_heap(void(*func)(void* data, void* context), void* userDa
 }
 
 void il2cpp_stop_gc_world()
-{ LOGCALL();
-    mono_stop_gc_world();
-
+{ LOGW("warning: il2cpp_stop_gc_world is not supported in boehm GC");
 }
 
 void il2cpp_start_gc_world()
 { LOGCALL();
-    mono_start_gc_world();
+    LOGW("warning: il2cpp_start_gc_world is not supported in boehm GC");
 }
 
 void* il2cpp_gc_alloc_fixed(size_t size)
@@ -1209,27 +1206,51 @@ uint32_t il2cpp_allocation_granularity()
 
 void* il2cpp_unity_liveness_allocate_struct(Il2CppClass* filter, int max_object_count, il2cpp_register_object_callback callback, void* userdata, il2cpp_liveness_reallocate_callback reallocate)
 { LOGCALL();
-    return NULL;//Liveness::AllocateStruct(filter, max_object_count, callback, userdata, reallocate);
+    auto* state =
+            static_cast<Il2CppLivenessState*>(std::malloc(sizeof(Il2CppLivenessState)));
+
+    state->register_callback = callback;
+    state->reallocate_callback = reallocate;
+    state->il2cpp_userdata = userdata;
+
+    MonoClass* mono_filter = filter->original;
+
+    state->mono_state =
+        mono_unity_liveness_allocate_struct(
+            mono_filter,
+            static_cast<guint>(max_object_count),
+            liveness_register_trampoline,
+            state,
+            liveness_reallocate_trampoline);
+
+    if (!state->mono_state)
+    {
+        std::free(state);
+        return nullptr;
+    }
+
+    return state;
 }
 
-void il2cpp_unity_liveness_calculation_from_root(Il2CppObject* root, void* state)
+void il2cpp_unity_liveness_calculation_from_root(Il2CppObject* root, Il2CppLivenessState* state)
 { LOGCALL();
-    //Liveness::FromRoot(root, state);
+   mono_unity_liveness_calculation_from_root((MonoObject*)root, state->mono_state);
 }
 
-void il2cpp_unity_liveness_calculation_from_statics(void* state)
+void il2cpp_unity_liveness_calculation_from_statics(Il2CppLivenessState* state)
 { LOGCALL();
-    //Liveness::FromStatics(state);
+    mono_unity_liveness_calculation_from_statics(state->mono_state);
 }
 
-void il2cpp_unity_liveness_finalize(void* state)
+void il2cpp_unity_liveness_finalize(Il2CppLivenessState* state)
 { LOGCALL();
-    //Liveness::Finalize(state);
+   mono_unity_liveness_finalize(state->mono_state);
 }
 
-void il2cpp_unity_liveness_free_struct(void* state)
+void il2cpp_unity_liveness_free_struct(Il2CppLivenessState* state)
 { LOGCALL();
-    //Liveness::FreeStruct(state);
+   mono_unity_liveness_free_struct(state->mono_state);
+    std::free(state);
 }
 
 // method
