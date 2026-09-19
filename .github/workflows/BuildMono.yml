@@ -51,35 +51,14 @@ jobs:
           autoconf --version | head -n 1
           automake --version | head -n 1
 
-      - name: Configure Mono for Boehm GC
+      - name: Locate Unity liveness build rules
         shell: bash
         run: |
-          set -e
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("sdks/builds/android.mk")
-          text = path.read_text()
-
-          text = text.replace(
-              "\t--disable-boehm \\\n",
-              "\t--enable-boehm \\\n"
-          )
-
-          # Explicitly disable SGen so Mono.Native links against libmonoboehm.
-          if "\t--with-sgen=no \\\n" not in text:
-              text = text.replace(
-                  "\t--enable-boehm \\\n",
-                  "\t--enable-boehm \\\n"
-                  "\t--with-sgen=no \\\n"
-              )
-
-          path.write_text(text)
-          PY
-
-          grep -nE 'enable-boehm|disable-boehm|with-sgen' \
-            sdks/builds/android.mk
+          echo "===== unity-liveness references ====="
+          grep -RIn \
+            --exclude-dir=.git \
+            -E 'unity[-_]liveness|mono_unity_liveness' \
+            mono sdks | head -200
 
       - name: Build Unity Mono ARM64 Android
         shell: bash
