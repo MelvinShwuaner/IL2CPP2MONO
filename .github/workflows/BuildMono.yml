@@ -50,8 +50,8 @@ jobs:
           make --version
           autoconf --version | head -n 1
           automake --version | head -n 1
-
-      - name: Configure Mono for Boehm GC
+          
+      - name: Configure Mono for SGen GC and Unity liveness
         shell: bash
         run: |
           set -e
@@ -63,24 +63,54 @@ jobs:
           text = path.read_text()
 
           text = text.replace(
-              "\t--disable-boehm \\\n",
-              "\t--enable-boehm \\\n"
+              "\t--enable-boehm \\\n",
+              "\t--disable-boehm \\\n"
           )
 
-          # Explicitly disable SGen so Mono.Native links against libmonoboehm.
-          if "\t--with-sgen=no \\\n" not in text:
-              text = text.replace(
-                  "\t--enable-boehm \\\n",
-                  "\t--enable-boehm \\\n"
-                  "\t--with-sgen=no \\\n"
+          text = text.replace(
+              "\t--with-sgen=no \\\n",
+              "\t--with-sgen=yes \\\n"
+          )
+
+          path.write_text(text)
+
+          # unity-liveness.c is already listed in
+          # unity_gc_dependent_sources, but this branch only adds that
+          # source list to the Boehm runtime. Add it to SGen too.
+          path = Path("mono/metadata/Makefile.am")
+          text = path.read_text()
+
+          old = (
+              "libmonoruntimesgen_la_SOURCES = "
+              "$(common_sources) $(icall_tables_sources) "
+              "$(ilgen_sources) $(gc_dependent_sources) $(sgen_sources)"
+          )
+
+          new = (
+              "libmonoruntimesgen_la_SOURCES = "
+              "$(common_sources) $(icall_tables_sources) "
+              "$(ilgen_sources) $(gc_dependent_sources) "
+              "$(unity_gc_dependent_sources) $(sgen_sources)"
+          )
+
+          if old not in text:
+              raise RuntimeError(
+                  "Could not find expected libmonoruntimesgen_la_SOURCES"
               )
 
+          text = text.replace(old, new, 1)
           path.write_text(text)
           PY
 
+          echo "===== android.mk GC configuration ====="
           grep -nE 'enable-boehm|disable-boehm|with-sgen' \
             sdks/builds/android.mk
 
+          echo "===== SGen liveness configuration ====="
+          grep -n -A2 -B1 \
+            'libmonoruntimesgen_la_SOURCES' \
+            mono/metadata/Makefile.am    
+            
       - name: Build Unity Mono ARM64 Android
         shell: bash
         run: |
@@ -128,7 +158,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: unity-mono-2022.3-android-arm64-boehm
+          name: unity-mono-2022.3-android-arm64-sgen
           path: |
             sdks/out/**
             sdks/builds/out/**
