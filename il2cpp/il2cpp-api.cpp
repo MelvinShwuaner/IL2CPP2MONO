@@ -624,7 +624,6 @@ void il2cpp_set_temp_dir(const char *temp_dir)
 void il2cpp_set_commandline_arguments(int argc, const char* const argv[], const char* basedir)
 {
     LOGCALL2();
-
     //il2cpp::utils::Environment::SetMainArgs(argv, argc);
 }
 
@@ -1057,7 +1056,7 @@ void il2cpp_gc_collect(int maxGenerations)
 
 int32_t il2cpp_gc_collect_a_little()
 { LOGCALL();
-    return mono_gc_collect_a_little();
+    return NULL;//mono_gc_collect_a_little();
 }
 
 void il2cpp_gc_start_incremental_collection()
@@ -1121,12 +1120,14 @@ void il2cpp_gc_foreach_heap(void(*func)(void* data, void* context), void* userDa
 }
 
 void il2cpp_stop_gc_world()
-{ LOGW("warning: il2cpp_stop_gc_world is not supported in boehm GC");
+{
+    LOGCALL();
+    //LOGW("warning: il2cpp_stop_gc_world is not supported in boehm GC");
 }
 
 void il2cpp_start_gc_world()
 { LOGCALL();
-    LOGW("warning: il2cpp_start_gc_world is not supported in boehm GC");
+    //LOGW("warning: il2cpp_start_gc_world is not supported in boehm GC");
 }
 
 void* il2cpp_gc_alloc_fixed(size_t size)

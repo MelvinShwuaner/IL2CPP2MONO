@@ -7,9 +7,9 @@ it works by replacing the original libil2cpp with a fake, a larper if you will. 
 most il2cpp types can just be the same as mono. but i made the MethodInfo and the class seperate because they are special. (class can be merged though, il think about it)
 
 to install it, you need to create a folder in the apk assets folder called Mono. put a Managed.zip in there that directly contains all your dlls. and put mono.zip, it stores the config and the native libs.
-monoboehm2.0 should be placed in the lib folder though.
+monosgen-2.0.so and the replacement libil2cpp.so are placed in the lib folder.
 
-if you are building the game in the unity editor however, use the editor script. have a folder called Libs in the Editor folder that has libil2cpp.so (replacement) and libmonoboehm there. and have mono.zip in the Editor folder as well.
+if you are building the game in the unity editor however, use the editor script. have a folder called Libs in the Editor folder that has libil2cpp.so (replacement) and monosgen there. and have mono.zip in the Editor folder as well.
 
 the mono build used for this is Unity's one. godot DOES NOT WORK. i have a github action here that can build it.
-the Boehm version of mono GC is used because of Unity Liveness. (same gc as il2cpp)
+the sgen version of mono GC is used.
