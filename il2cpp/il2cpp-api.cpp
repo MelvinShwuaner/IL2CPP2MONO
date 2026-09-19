@@ -623,8 +623,8 @@ void il2cpp_set_temp_dir(const char *temp_dir)
 
 void il2cpp_set_commandline_arguments(int argc, const char* const argv[], const char* basedir)
 {
-    LOGCALL2();
-    //il2cpp::utils::Environment::SetMainArgs(argv, argc);
+    LOGCALL();
+    mono_jit_parse_options(argc, const_cast<char**>(argv));
 }
 
 void il2cpp_set_commandline_arguments_utf16(int argc, const Il2CppChar* const argv[], const char* basedir)
