@@ -4,7 +4,7 @@ a unity mod that adds support for mono on arm64 (android). will be made useless 
 # how does it work?
 
 it works by replacing the original libil2cpp with a fake, a larper if you will. this fake forwards the calls to mono. and also handles the dlls and stuff.
-most il2cpp types can just be the same as mono. but i made the MethodInfo and the class seperate because they are special. (class can be merged though, il think about it)
+most il2cpp types can just be the same as mono. but i made the MethodInfo and the class seperate because they are special. (class can be merged though, il think about it). and it looks like methodinfo is also redundant
 
 to install it, you need to create a folder in the apk assets folder called Mono. put a Managed.zip in there that directly contains all your dlls. and put mono.zip, it stores the config and the native libs.
 monosgen-2.0.so and the replacement libil2cpp.so are placed in the lib folder.
