@@ -8,7 +8,7 @@
 #include "mono/metadata/appdomain.h"
 #include <mono/metadata/threads.h>
 #include <mutex>
-#include "mono/metadata/mono-gc.h"
+#include "mono/metadata/tabledefs.h"
 static std::unordered_map<MonoMethod*, MethodInfo*> MethodCache;
 static std::unordered_map<MonoClass*, Il2CppClass*> ClassCache;
 static std::mutex Mutex;
@@ -121,6 +121,51 @@ static MethodInfo* WrapMethod(MonoMethod* m)
     info->originalMethod = m;
     MethodCache[m] = info;
     return info;
+}
+static bool IsMonoTypeBlittable(MonoType* type);
+static bool IsMonoClassBlittable(MonoClass* k) {
+    if (!mono_class_is_valuetype(k)) return false;
+    if (mono_class_is_enum(k)) return true;
+
+    void* iter = nullptr;
+    MonoClassField* field;
+    while ((field = mono_class_get_fields(k, &iter)) != nullptr) {
+        if (mono_field_get_flags(field) & FIELD_ATTRIBUTE_STATIC) continue; // only instance fields matter for layout
+        if (!IsMonoTypeBlittable(mono_field_get_type(field))) return false;
+    }
+    return true;
+}
+static bool IsMonoTypeBlittable(MonoType* type)
+{
+    switch (mono_type_get_type(type)) {
+        case MONO_TYPE_I1:
+        case MONO_TYPE_U1:
+        case MONO_TYPE_I2:
+        case MONO_TYPE_U2:
+        case MONO_TYPE_I4:
+        case MONO_TYPE_U4:
+        case MONO_TYPE_I8:
+        case MONO_TYPE_U8:
+        case MONO_TYPE_R4:
+        case MONO_TYPE_R8:
+        case MONO_TYPE_I:
+        case MONO_TYPE_U:
+        case MONO_TYPE_PTR:
+            return true;
+
+        case MONO_TYPE_BOOLEAN: // 1 byte managed, marshals as 4-byte BOOL by default — not blittable
+        case MONO_TYPE_CHAR:    // UTF-16 managed, marshaling target varies — not blittable
+            return false;
+
+        case MONO_TYPE_VALUETYPE: {
+            MonoClass* fieldClass = mono_class_from_mono_type(type);
+            if (mono_class_is_enum(fieldClass)) return true; // underlying type is always a blittable primitive
+            return IsMonoClassBlittable(fieldClass);
+        }
+
+        default:
+            return false; // reference types, strings, arrays of non-blittable elements, generic params, etc.
+    }
 }
 const char* GetAssemblyName(MonoClass* klass) {
     MonoImage* image = mono_class_get_image(klass);

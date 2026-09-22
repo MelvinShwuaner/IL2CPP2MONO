@@ -51,6 +51,7 @@
 
 #include "il2cpp-api-types.h"
 #include "main.cpp"
+#include "mono/metadata/mono-gc.h"
 #include "mono/metadata/unity-liveness.h"
 typedef size_t il2cpp_array_size_t;
 #include <mono/jit/jit.h>
@@ -788,8 +789,8 @@ size_t il2cpp_class_num_fields(const Il2CppClass* klass)
 }
 
 bool il2cpp_class_is_blittable(const Il2CppClass* klass)
-{ LOGCALL2();
-    return NULL;//mono_class_is()
+{ LOGCALL();
+    return IsMonoClassBlittable(klass->original);
 }
 
 int32_t il2cpp_class_value_size(Il2CppClass *klass, uint32_t *align)
@@ -1055,7 +1056,7 @@ void il2cpp_gc_collect(int maxGenerations)
 }
 
 int32_t il2cpp_gc_collect_a_little()
-{ LOGCALL();
+{ LOGCALL2();
     return NULL;//mono_gc_collect_a_little();
 }
 
@@ -1121,12 +1122,12 @@ void il2cpp_gc_foreach_heap(void(*func)(void* data, void* context), void* userDa
 
 void il2cpp_stop_gc_world()
 {
-    LOGCALL();
+    LOGCALL2();
     //LOGW("warning: il2cpp_stop_gc_world is not supported in boehm GC");
 }
 
 void il2cpp_start_gc_world()
-{ LOGCALL();
+{ LOGCALL2();
     //LOGW("warning: il2cpp_start_gc_world is not supported in boehm GC");
 }
 
