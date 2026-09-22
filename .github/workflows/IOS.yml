@@ -158,7 +158,37 @@ jobs:
           path.write_text(text)
 
           print("iOS logging patched to use os_log().")
+          
+      - name: Patch ARM64 Darwin ucontext definitions
+        shell: python
+        run: |
+          from pathlib import Path
 
+          path = Path("mono/utils/mono-sigcontext.h")
+          text = path.read_text()
+
+          replacements = {
+              '((ucontext_t*)(ctx))->uc_mcontext->__ss.__r[0]':
+                  '((ucontext_t*)(ctx))->uc_mcontext->__ss.__x[0]',
+
+              '&(((ucontext_t*)(ctx))->uc_mcontext->__ss.__r)':
+                  '&(((ucontext_t*)(ctx))->uc_mcontext->__ss.__x)',
+
+              '((ucontext_t*)(ctx))->uc_mcontext->__fs.__r':
+                  '((ucontext_t*)(ctx))->uc_mcontext->__ns.__v',
+          }
+
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(
+                      f"Expected ARM64 Darwin expression was not found:\n{old}"
+                  )
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          print("Patched modern Darwin ARM64 ucontext layout.")    
+          
       - name: Verify patches
         shell: bash
         run: |
