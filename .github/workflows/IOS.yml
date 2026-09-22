@@ -87,144 +87,61 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re
 
           path = Path("external/buildscripts/build.pl")
           text = path.read_text()
 
-          # Use the runner's installed iOS SDK instead of Unity's
-          # private/historical iPhoneOS 9.3 SDK.
-          text = re.sub(
-              r'my \$iosSdkVersion = "9\.3";',
-              'my $iosSdkVersion = `xcrun --sdk iphoneos --show-sdk-version`; chomp($iosSdkVersion);',
-              text,
-              count=1,
-          )
+          replacements = {
+              # Modern SDK
+              'my $iosSdkVersion = "9.3";':
+                  'my $iosSdkVersion = `xcrun --sdk iphoneos --show-sdk-version`; chomp($iosSdkVersion);',
 
-          text = re.sub(
-              r'my \$iphoneOsMinVersion = "3\.0";',
-              'my $iphoneOsMinVersion = "12.0";',
-              text,
-              count=1,
-          )
+              'my $iphoneOsMinVersion = "3.0";':
+                  'my $iphoneOsMinVersion = "12.0";',
 
-          text = re.sub(
-              r'my \$iosSdkRoot = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Platforms/iPhoneOS\.platform/Developer/SDKs/iPhoneOS\$iosSdkVersion\.sdk";',
-              'my $iosSdkRoot = `xcrun --sdk iphoneos --show-sdk-path`; chomp($iosSdkRoot);',
-              text,
-              count=1,
-          )
+              'my $iosSdkRoot = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS$iosSdkVersion.sdk";':
+                  'my $iosSdkRoot = `xcrun --sdk iphoneos --show-sdk-path`; chomp($iosSdkRoot);',
 
-          # Modern Xcode paths.
-          text = re.sub(
-              r'my \$clang = .*?;',
-              'my $clang = `xcrun --sdk iphoneos -f clang`; chomp($clang);',
-              text,
-              count=1,
-          )
+              # Use the actual compiler returned by xcrun.
+              '$ENV{CC} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -arch $iphoneArch";':
+                  '$ENV{CC} = `xcrun --sdk iphoneos -f clang`; chomp($ENV{CC});',
 
-          text = re.sub(
-              r'my \$clangxx = .*?;',
-              'my $clangxx = `xcrun --sdk iphoneos -f clang\+\+`; chomp($clangxx);',
-              text,
-              count=1,
-          )
+              '$ENV{CXX} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++ -arch $iphoneArch";':
+                  '$ENV{CXX} = `xcrun --sdk iphoneos -f clang++`; chomp($ENV{CXX});',
 
-          text = re.sub(
-              r'my \$ld = .*?;',
-              'my $ld = `xcrun --sdk iphoneos -f ld`; chomp($ld);',
-              text,
-              count=1,
-          )
+              '$ENV{LD} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld";':
+                  '$ENV{LD} = `xcrun --sdk iphoneos -f ld`; chomp($ENV{LD});',
 
-          # Use the actual compilers, without "-arch arm64" embedded in CC/CXX.
-          text = re.sub(
-              r'\$ENV\{CC\} = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Toolchains/XcodeDefault\.xctoolchain/usr/bin/clang -arch \$iphoneArch";',
-              '$ENV{CC} = $clang;',
-              text,
-              count=1,
-          )
+              # The modern SDK does not have the old SDK/usr/include layout.
+              '$ENV{C_INCLUDE_PATH} = "$iosSdkRoot/usr/include";':
+                  'delete $ENV{C_INCLUDE_PATH};',
 
-          text = re.sub(
-              r'\$ENV\{CXX\} = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Toolchains/XcodeDefault\.xctoolchain/usr/bin/clang\+\+ -arch \$iphoneArch";',
-              '$ENV{CXX} = $clangxx;',
-              text,
-              count=1,
-          )
+              '$ENV{CPLUS_INCLUDE_PATH} = "$iosSdkRoot/usr/include";':
+                  'delete $ENV{CPLUS_INCLUDE_PATH};',
 
-          text = re.sub(
-              r'\$ENV\{LD\} = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Toolchains/XcodeDefault\.xctoolchain/usr/bin/ld";',
-              '$ENV{LD} = $ld;',
-              text,
-              count=1,
-          )
+              # Remove obsolete 32-bit ARM flags and put arm64 explicitly
+              # into the compiler flags.
+              '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -DHAVE_ARMV6=1 -DARM_FPU_VFP=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -mno-thumb -Os -isysroot $iosSdkRoot";':
+                  '$ENV{CFLAGS} = "$iosCFlagsCommon -g -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot";',
 
-          # The old build has obsolete 32-bit ARM flags.
-          text = text.replace(
-              '-DHAVE_ARMV6=1 -DARM_FPU_VFP=1',
-              ''
-          )
+              '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__ -D__arm__";':
+                  '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__";',
 
-          text = text.replace(
-              '-mno-thumb',
-              ''
-          )
+              # Current Xcode does not need the old Unity bitcode setting.
+              'push @configureparams, "--with-bitcode=yes";':
+                  'push @configureparams, "--with-bitcode=no";',
+          }
 
-          text = text.replace(
-              '-D__arm__',
-              ''
-          )
-
-          # Don't assume the old SDK/usr/include layout exists.
-          text = re.sub(
-              r'\$ENV\{C_INCLUDE_PATH\} = .*?;',
-              'delete $ENV{C_INCLUDE_PATH};',
-              text,
-              count=1,
-          )
-
-          text = re.sub(
-              r'\$ENV\{CPLUS_INCLUDE_PATH\} = .*?;',
-              'delete $ENV{CPLUS_INCLUDE_PATH};',
-              text,
-              count=1,
-          )
-
-          # Put the architecture in CFLAGS instead of CC/CXX.
-          text = re.sub(
-              r'\$ENV\{CFLAGS\} = "\$iosCFlagsCommon(.*?)";',
-              lambda m:
-                  '$ENV{CFLAGS} = "$iosCFlagsCommon'
-                  + m.group(1).replace(
-                      '-mno-thumb ',
-                      ''
-                  ).replace(
-                      '-DHAVE_ARMV6=1 ',
-                      ''
-                  ).replace(
-                      '-DARM_FPU_VFP=1 ',
-                      ''
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(
+                      "Expected line was not found in build.pl:\n" + old
                   )
-                  + ' -arch $iphoneArch";',
-              text,
-              count=1,
-          )
-
-          # Remove old 32-bit ARM CXX define if still present.
-          text = text.replace(
-              ' -U__powerpc__ -U__i386__ -D__arm__',
-              ' -U__powerpc__ -U__i386__'
-          )
-
-          # Modern Xcode does not use the old Unity bitcode setup.
-          text = text.replace(
-              'push @configureparams, "--with-bitcode=yes";',
-              'push @configureparams, "--with-bitcode=no";',
-          )
+              text = text.replace(old, new, 1)
 
           path.write_text(text)
 
-          print("Patched build.pl successfully")
+          print("Patched build.pl successfully.")
 
       - name: Verify patched iOS configuration
         run: |
