@@ -121,8 +121,8 @@ jobs:
 
               # Remove obsolete 32-bit ARM flags and put arm64 explicitly
               # into the compiler flags.
-              '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -DHAVE_ARMV6=1 -DARM_FPU_VFP=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -mno-thumb -Os -isysroot $iosSdkRoot";':
-                  '$ENV{CFLAGS} = "$iosCFlagsCommon -g -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot";',
+              '$ENV{CFLAGS} = "$iosCFlagsCommon -g -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot";':
+                '$ENV{CFLAGS} = "$iosCFlagsCommon -g -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot -Wno-deprecated-declarations";',
 
               '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__ -D__arm__";':
                   '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__";',
