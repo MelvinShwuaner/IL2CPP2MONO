@@ -194,6 +194,23 @@ jobs:
 
           print("=== Patched iPhone build configuration ===")
           print(block)
+          
+      - name: Patch iOS warning flags
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("mono/utils/Makefile.am")
+          text = path.read_text()
+
+          old = "libmonoutils_la_CFLAGS = $(JEMALLOC_CFLAGS) @CXX_ADD_CFLAGS@"
+          new = old + " -Wno-error=deprecated-declarations"
+
+          if old not in text:
+              raise SystemExit("Could not find libmonoutils_la_CFLAGS")
+
+          path.write_text(text.replace(old, new, 1))
+          
       - name: Verify patched iOS configuration
         run: |
           set -euxo pipefail
