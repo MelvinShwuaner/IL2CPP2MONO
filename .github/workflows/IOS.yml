@@ -73,12 +73,13 @@ jobs:
           set -euxo pipefail
 
           perl external/buildscripts/build.pl \
-            --build=1 \
-            --iphonearch=arm64 \
-            --disablemcs=1 \
-            --debug=1 \
-            --stevedorebuilddeps=0 \
-            --builddeps="$GITHUB_WORKSPACE/local-build-deps"
+          --build=1 \
+          --clean=1 \
+          --iphonearch=arm64 \
+          --disablemcs=1 \
+          --debug=1 \
+          --stevedorebuilddeps=0 \
+          --builddeps="$GITHUB_WORKSPACE/local-build-deps"
 
       - name: Inspect result
         run: |
