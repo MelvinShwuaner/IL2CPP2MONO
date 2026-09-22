@@ -2,21 +2,25 @@ name: Build Unity Mono iOS ARM64 JIT
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   build:
     runs-on: macos-14
 
     steps:
-      - name: Checkout Mono
+      - name: Checkout Unity Mono
         uses: actions/checkout@v4
         with:
+          repository: Unity-Technologies/mono
           ref: unity-2022.3-mbe
           submodules: recursive
           fetch-depth: 1
+
+      - name: Show checkout
+        run: |
+          git rev-parse HEAD
+          git branch --show-current
+          git submodule status
 
       - name: Install dependencies
         run: |
