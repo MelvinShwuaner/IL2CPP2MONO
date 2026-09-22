@@ -16,82 +16,287 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Show Xcode
+      - name: Show toolchain
         run: |
+          set -euxo pipefail
+
+          echo "=== macOS ==="
+          sw_vers
+
+          echo "=== Xcode ==="
           xcode-select -p
           xcodebuild -version
+
+          echo "=== iOS SDK ==="
           xcrun --sdk iphoneos --show-sdk-path
-          xcrun --sdk iphonesimulator --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos -f clang
+          xcrun --sdk iphoneos -f clang++
+          xcrun --sdk iphoneos -f ld
 
-      - name: Prepare public build dependencies
+      - name: Prepare local Mono build dependencies
         shell: bash
         run: |
           set -euxo pipefail
 
           DEPS="$GITHUB_WORKSPACE/local-build-deps"
 
-          mkdir -p "$DEPS"
-          mkdir -p "$DEPS/built-tools/bin"
+          mkdir -p "$DEPS/autoconf-2-69"
+          mkdir -p "$DEPS/automake-1-16-1"
+          mkdir -p "$DEPS/libtool-2-4-6"
           mkdir -p "$DEPS/iOSBuildEnvironment/builds"
 
-          cd "$DEPS"
+          echo "Downloading autoconf..."
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz \
+            -o "$DEPS/autoconf-2-69/autoconf-2.69.tar.gz"
 
-          curl -L https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz \
-            -o autoconf.tar.gz
-          mkdir -p autoconf-2-69
-          tar -xzf autoconf.tar.gz -C autoconf-2-69
+          echo "Downloading automake..."
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/automake/automake-1.16.1.tar.gz \
+            -o "$DEPS/automake-1-16-1/automake-1.16.1.tar.gz"
 
-          curl -L https://ftp.gnu.org/gnu/automake/automake-1.16.1.tar.gz \
-            -o automake.tar.gz
-          mkdir -p automake-1-16-1
-          tar -xzf automake.tar.gz -C automake-1-16-1
+          echo "Downloading libtool..."
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/libtool/libtool-2.4.6.tar.gz \
+            -o "$DEPS/libtool-2-4-6/libtool-2.4.6.tar.gz"
 
-          curl -L https://ftpmirror.gnu.org/libtool/libtool-2.4.6.tar.gz \
-            -o libtool.tar.gz
-          mkdir -p libtool-2-4-6
-          tar -xzf libtool.tar.gz -C libtool-2-4-6
-
-      - name: Prepare Xcode compatibility layout
+      - name: Provide Xcode compatibility layout
         shell: bash
         run: |
           set -euxo pipefail
 
           DEPS="$GITHUB_WORKSPACE/local-build-deps"
-          XCODE="$(xcode-select -p)"
-          XCODE_APP="$(dirname "$(dirname "$XCODE")")"
 
-          mkdir -p "$DEPS/iOSBuildEnvironment/builds"
+          XCODE_SELECT="$(xcode-select -p)"
+          XCODE_APP="$(dirname "$(dirname "$XCODE_SELECT")")"
 
-          ln -sfn "$XCODE_APP" \
+          echo "Xcode app: $XCODE_APP"
+
+          ln -sfn \
+            "$XCODE_APP" \
             "$DEPS/iOSBuildEnvironment/builds/Xcode.app"
 
-          echo "Using Xcode:"
-          readlink "$DEPS/iOSBuildEnvironment/builds/Xcode.app"
+          test -x \
+            "$DEPS/iOSBuildEnvironment/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+
+          echo "Compatibility Xcode path:"
+          ls -la "$DEPS/iOSBuildEnvironment/builds"
+
+      - name: Patch Unity iOS build configuration
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path("external/buildscripts/build.pl")
+          text = path.read_text()
+
+          # Use the runner's installed iOS SDK instead of Unity's
+          # private/historical iPhoneOS 9.3 SDK.
+          text = re.sub(
+              r'my \$iosSdkVersion = "9\.3";',
+              'my $iosSdkVersion = `xcrun --sdk iphoneos --show-sdk-version`; chomp($iosSdkVersion);',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'my \$iphoneOsMinVersion = "3\.0";',
+              'my $iphoneOsMinVersion = "12.0";',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'my \$iosSdkRoot = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Platforms/iPhoneOS\.platform/Developer/SDKs/iPhoneOS\$iosSdkVersion\.sdk";',
+              'my $iosSdkRoot = `xcrun --sdk iphoneos --show-sdk-path`; chomp($iosSdkRoot);',
+              text,
+              count=1,
+          )
+
+          # Modern Xcode paths.
+          text = re.sub(
+              r'my \$clang = .*?;',
+              'my $clang = `xcrun --sdk iphoneos -f clang`; chomp($clang);',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'my \$clangxx = .*?;',
+              'my $clangxx = `xcrun --sdk iphoneos -f clang\+\+`; chomp($clangxx);',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'my \$ld = .*?;',
+              'my $ld = `xcrun --sdk iphoneos -f ld`; chomp($ld);',
+              text,
+              count=1,
+          )
+
+          # Use the actual compilers, without "-arch arm64" embedded in CC/CXX.
+          text = re.sub(
+              r'\$ENV\{CC\} = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Toolchains/XcodeDefault\.xctoolchain/usr/bin/clang -arch \$iphoneArch";',
+              '$ENV{CC} = $clang;',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'\$ENV\{CXX\} = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Toolchains/XcodeDefault\.xctoolchain/usr/bin/clang\+\+ -arch \$iphoneArch";',
+              '$ENV{CXX} = $clangxx;',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'\$ENV\{LD\} = "\$iosBuildEnvDir/builds/Xcode\.app/Contents/Developer/Toolchains/XcodeDefault\.xctoolchain/usr/bin/ld";',
+              '$ENV{LD} = $ld;',
+              text,
+              count=1,
+          )
+
+          # The old build has obsolete 32-bit ARM flags.
+          text = text.replace(
+              '-DHAVE_ARMV6=1 -DARM_FPU_VFP=1',
+              ''
+          )
+
+          text = text.replace(
+              '-mno-thumb',
+              ''
+          )
+
+          text = text.replace(
+              '-D__arm__',
+              ''
+          )
+
+          # Don't assume the old SDK/usr/include layout exists.
+          text = re.sub(
+              r'\$ENV\{C_INCLUDE_PATH\} = .*?;',
+              'delete $ENV{C_INCLUDE_PATH};',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'\$ENV\{CPLUS_INCLUDE_PATH\} = .*?;',
+              'delete $ENV{CPLUS_INCLUDE_PATH};',
+              text,
+              count=1,
+          )
+
+          # Put the architecture in CFLAGS instead of CC/CXX.
+          text = re.sub(
+              r'\$ENV\{CFLAGS\} = "\$iosCFlagsCommon(.*?)";',
+              lambda m:
+                  '$ENV{CFLAGS} = "$iosCFlagsCommon'
+                  + m.group(1).replace(
+                      '-mno-thumb ',
+                      ''
+                  ).replace(
+                      '-DHAVE_ARMV6=1 ',
+                      ''
+                  ).replace(
+                      '-DARM_FPU_VFP=1 ',
+                      ''
+                  )
+                  + ' -arch $iphoneArch";',
+              text,
+              count=1,
+          )
+
+          # Remove old 32-bit ARM CXX define if still present.
+          text = text.replace(
+              ' -U__powerpc__ -U__i386__ -D__arm__',
+              ' -U__powerpc__ -U__i386__'
+          )
+
+          # Modern Xcode does not use the old Unity bitcode setup.
+          text = text.replace(
+              'push @configureparams, "--with-bitcode=yes";',
+              'push @configureparams, "--with-bitcode=no";',
+          )
+
+          path.write_text(text)
+
+          print("Patched build.pl successfully")
+
+      - name: Verify patched iOS configuration
+        run: |
+          set -euxo pipefail
+
+          grep -n -A65 -B5 \
+            'if (\$iphone)' \
+            external/buildscripts/build.pl | head -n 100
 
       - name: Build Mono
+        shell: bash
         run: |
           set -euxo pipefail
 
           perl external/buildscripts/build.pl \
-          --build=1 \
-          --clean=1 \
-          --iphonearch=arm64 \
-          --disablemcs=1 \
-          --debug=1 \
-          --stevedorebuilddeps=0 \
-          --builddeps="$GITHUB_WORKSPACE/local-build-deps"
+            --build=1 \
+            --clean=1 \
+            --iphonearch=arm64 \
+            --disablemcs=1 \
+            --debug=1 \
+            --jobs=4 \
+            --stevedorebuilddeps=0 \
+            --builddeps="$GITHUB_WORKSPACE/local-build-deps"
 
-      - name: Inspect result
+      - name: Inspect built artifacts
+        if: always()
+        shell: bash
         run: |
+          set -euxo pipefail
+
+          echo "=== builds directory ==="
+          find builds -maxdepth 5 -type f -print 2>/dev/null || true
+
+          echo "=== Mono libraries ==="
           find builds -type f \
             \( -name 'libmonosgen-2.0.a' \
-            -o -name 'libmonobdwgc-2.0.a' \
-            -o -name '*.dylib' \
-            -o -name '*.a' \) \
-            -print
+            -o -name 'libmonosgen-2.0.dylib' \
+            -o -name '*.a' \
+            -o -name '*.dylib' \) \
+            -print 2>/dev/null || true
 
-      - name: Upload build
+      - name: Dump configure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          echo "================ config.log ================"
+          tail -n 300 config.log 2>/dev/null || true
+
+          echo "================ configure outputs ================"
+          find . \
+            \( -name config.log \
+            -o -name config.status \
+            -o -name config.cache \) \
+            -print 2>/dev/null | head -n 100
+
+          echo "================ Xcode ================"
+          xcode-select -p
+          xcodebuild -version
+
+          echo "================ SDK ================"
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos -f clang
+          xcrun --sdk iphoneos -f clang++
+
+      - name: Upload Mono build
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unity-mono-ios-arm64-jit
-          path: builds/**
+          path: |
+            builds/**
+          if-no-files-found: warn
