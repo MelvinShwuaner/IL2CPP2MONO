@@ -40,16 +40,6 @@ jobs:
             rsync \
             unzip \
             wget
-
-      - name: Show tool versions
-        run: |
-          gcc --version
-          clang --version || true
-          mono --version
-          python3 --version
-          make --version
-          autoconf --version | head -n 1
-          automake --version | head -n 1
           
       - name: Configure Mono for SGen GC and Unity liveness
         shell: bash
