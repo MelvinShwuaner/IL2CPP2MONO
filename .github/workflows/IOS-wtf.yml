@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-7
 
     steps:
       # ------------------------------------------------------------
@@ -252,6 +252,33 @@ jobs:
           path.write_text(text)
 
           print("HOST_IOS now uses the existing os_log implementation.")
+
+      - name: Patch Objective-C super structure
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("mono/utils/mono-threads-mach-helper.c")
+          text = path.read_text()
+
+          old = """\tsuper.receiver = self;
+          #if !defined(__cplusplus) && !__OBJC2__
+          \tsuper.class = nsobject;
+          #else
+          \tsuper.super_class = nsobject;
+          #endif"""
+
+          new = """\tsuper.receiver = self;
+          \tsuper.super_class = nsobject;"""
+
+          if old not in text:
+              raise SystemExit(
+                  "Expected objc_super initialization was not found"
+              )
+
+          path.write_text(text.replace(old, new, 1))
+
+          print("Patched objc_super for modern Apple headers.")    
 
       # ------------------------------------------------------------
       # Verify exactly what we're about to build.
