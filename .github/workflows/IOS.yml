@@ -1,4 +1,4 @@
-name: Build Unity Mono Android 2
+name: Build Unity Mono 
 
 on:
   workflow_dispatch:
