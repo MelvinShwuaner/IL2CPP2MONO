@@ -13,3 +13,4 @@ if you are building the game in the unity editor however, use the editor script.
 
 the mono build used for this is Unity's one. godot DOES NOT WORK. i have a github action here that can build it.
 the sgen version of mono GC is used.
+
