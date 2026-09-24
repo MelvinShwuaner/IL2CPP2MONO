@@ -1,0 +1,276 @@
+name: Build Unity Mono iOS ARM64 JIT
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Unity Mono
+        uses: actions/checkout@v4
+        with:
+          repository: Unity-Technologies/mono
+          ref: unity-2022.3-mbe
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          test -d /Applications/Xcode_15.4.app
+
+          sudo xcode-select -s \
+            /Applications/Xcode_15.4.app/Contents/Developer
+
+          echo "=== Xcode ==="
+          xcode-select -p
+          xcodebuild -version
+
+          echo "=== iOS SDK ==="
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos -f clang
+          xcrun --sdk iphoneos -f clang++
+          xcrun --sdk iphoneos -f ld
+
+      - name: Prepare local Mono build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+
+          mkdir -p "$DEPS/autoconf-2-69"
+          mkdir -p "$DEPS/automake-1-16-1"
+          mkdir -p "$DEPS/libtool-2-4-6"
+          mkdir -p "$DEPS/iOSBuildEnvironment/builds"
+          mkdir -p "$DEPS/built-tools/bin"
+
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz \
+            -o "$DEPS/autoconf-2-69/autoconf-2.69.tar.gz"
+
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/automake/automake-1.16.1.tar.gz \
+            -o "$DEPS/automake-1-16-1/automake-1.16.1.tar.gz"
+
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/libtool/libtool-2.4.6.tar.gz \
+            -o "$DEPS/libtool-2-4-6/libtool-2.4.6.tar.gz"
+
+      - name: Provide Xcode compatibility layout
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+          XCODE_APP="/Applications/Xcode_15.4.app"
+
+          ln -sfn \
+            "$XCODE_APP" \
+            "$DEPS/iOSBuildEnvironment/builds/Xcode.app"
+
+          test -x \
+            "$DEPS/iOSBuildEnvironment/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+
+       - name: Patch Unity iOS build configuration
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("external/buildscripts/build.pl")
+          text = path.read_text()
+
+          replacements = {
+              'my $iosSdkVersion = "9.3";':
+                  'my $iosSdkVersion = `xcrun --sdk iphoneos --show-sdk-version`; chomp($iosSdkVersion);',
+
+              'my $iphoneOsMinVersion = "3.0";':
+                  'my $iphoneOsMinVersion = "12.0";',
+
+              'my $iosSdkRoot = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS$iosSdkVersion.sdk";':
+                  'my $iosSdkRoot = `xcrun --sdk iphoneos --show-sdk-path`; chomp($iosSdkRoot);',
+
+              '$ENV{C_INCLUDE_PATH} = "$iosSdkRoot/usr/include";':
+                  'delete $ENV{C_INCLUDE_PATH};',
+
+              '$ENV{CPLUS_INCLUDE_PATH} = "$iosSdkRoot/usr/include";':
+                  'delete $ENV{CPLUS_INCLUDE_PATH};',
+
+              '$ENV{CC} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -arch $iphoneArch";':
+                  '$ENV{CC} = `xcrun --sdk iphoneos -f clang`; chomp($ENV{CC});',
+
+              '$ENV{CXX} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++ -arch $iphoneArch";':
+                  '$ENV{CXX} = `xcrun --sdk iphoneos -f clang++`; chomp($ENV{CXX});',
+
+              '$ENV{LD} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld";':
+                  '$ENV{LD} = `xcrun --sdk iphoneos -f ld`; chomp($ENV{LD});',
+
+              '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -DHAVE_ARMV6=1 -DARM_FPU_VFP=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -mno-thumb -Os -isysroot $iosSdkRoot";':
+                  '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot";',
+
+              '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__ -D__arm__";':
+                  '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__";',
+
+              'push @configureparams, "--host=arm-apple-darwin$darwinVersion";':
+                  'push @configureparams, "--host=aarch64-apple-darwin$darwinVersion";',
+
+              'push @configureparams, "--with-bitcode=yes";':
+                  'push @configureparams, "--with-bitcode=no";',
+          }
+
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(
+                      "Expected line was not found in build.pl:\n" + old
+                  )
+
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          print("build.pl patched successfully")
+
+      - name: Patch iOS logging
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("mono/utils/mono-log-darwin.c")
+          text = path.read_text()
+
+          old = (
+              "#if (defined(HOST_WATCHOS) && "
+              "(__WATCH_OS_VERSION_MIN_REQUIRED >= __WATCHOS_3_0)) "
+              "|| defined(HOST_MACCAT)"
+          )
+
+          new = old + " || defined(HOST_IOS)"
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find the Darwin logging platform condition"
+              )
+
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          print("iOS logging patched to use os_log().")
+          
+      - name: Patch ARM64 Darwin ucontext definitions
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("mono/utils/mono-sigcontext.h")
+          text = path.read_text()
+
+          replacements = {
+              '((ucontext_t*)(ctx))->uc_mcontext->__ss.__r[0]':
+                  '((ucontext_t*)(ctx))->uc_mcontext->__ss.__x[0]',
+
+              '&(((ucontext_t*)(ctx))->uc_mcontext->__ss.__r)':
+                  '&(((ucontext_t*)(ctx))->uc_mcontext->__ss.__x)',
+
+              '((ucontext_t*)(ctx))->uc_mcontext->__fs.__r':
+                  '((ucontext_t*)(ctx))->uc_mcontext->__ns.__v',
+          }
+
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(
+                      f"Expected ARM64 Darwin expression was not found:\n{old}"
+                  )
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          print("Patched modern Darwin ARM64 ucontext layout.")    
+          
+      - name: Verify patches
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "=== JIT configure option ==="
+          grep -n \
+            'enable-minimal=.*ssa,jit' \
+            external/buildscripts/build.pl
+
+          echo "=== iOS SDK configuration ==="
+          grep -n \
+            'iosSdkVersion\|iphoneOsMinVersion\|show-sdk-path' \
+            external/buildscripts/build.pl
+
+          echo "=== ARM flags ==="
+          grep -n \
+            'HAVE_ARMV6\|ARM_FPU_VFP\|mno-thumb\|__arm__\|-arch \$iphoneArch' \
+            external/buildscripts/build.pl || true
+
+          echo "=== Darwin logger ==="
+          grep -n \
+            'HOST_IOS\|HOST_MACCAT\|os/log.h\|asl.h\|asl_log' \
+            mono/utils/mono-log-darwin.c
+
+      - name: Build Mono
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          perl external/buildscripts/build.pl \
+            --build=1 \
+            --clean=1 \
+            --iphonearch=arm64 \
+            --disablemcs=1 \
+            --debug=1 \
+            --jobs=4 \
+            --stevedorebuilddeps=0 \
+            --builddeps="$GITHUB_WORKSPACE/local-build-deps"
+
+      - name: Inspect build
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "=== Build files ==="
+          find builds -type f -print 2>/dev/null || true
+
+          echo "=== Libraries ==="
+          find builds -type f \
+            \( -name '*.a' -o -name '*.dylib' \) \
+            -print 2>/dev/null || true
+
+      - name: Dump diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          echo "================ config.log ================"
+          tail -n 400 config.log 2>/dev/null || true
+
+          echo "================ Xcode ================"
+          xcode-select -p
+          xcodebuild -version
+
+          echo "================ iOS SDK ================"
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+
+          echo "================ patched logger ================"
+          sed -n '1,115p' mono/utils/mono-log-darwin.c
+
+      - name: Upload build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-ios-arm64-jit
+          path: |
+            builds/**
+          if-no-files-found: warn
