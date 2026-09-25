@@ -17,7 +17,10 @@ jobs:
           fetch-depth: 1
 
       - name: Get iPhoneOS 9.3 SDK
+        shell: bash
         run: |
+          set -euxo pipefail
+
           git clone \
             --depth 1 \
             --filter=blob:none \
@@ -30,28 +33,52 @@ jobs:
 
           mv iPhoneOS9.3.sdk "$GITHUB_WORKSPACE/iPhoneOS9.3.sdk"
 
-      - name: Prepare build dependencies
+          test -d "$GITHUB_WORKSPACE/iPhoneOS9.3.sdk"
+          test -f "$GITHUB_WORKSPACE/iPhoneOS9.3.sdk/usr/include/sys/types.h"
+
+      - name: Install build tools
+        shell: bash
         run: |
-          brew install autoconf automake libtool
+          set -euxo pipefail
 
-          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+          brew install \
+            autoconf \
+            automake \
+            libtool \
+            texinfo \
+            pkg-config
 
-          mkdir -p "$DEPS/built-tools/bin"
-          mkdir -p "$DEPS/iOSBuildEnvironment/builds"
+          TOOLS="$GITHUB_WORKSPACE/build-tools/bin"
+          mkdir -p "$TOOLS"
 
           ln -sf "$(brew --prefix autoconf)/bin/autoconf" \
-            "$DEPS/built-tools/bin/autoconf"
+            "$TOOLS/autoconf"
 
           ln -sf "$(brew --prefix automake)/bin/automake" \
-            "$DEPS/built-tools/bin/automake"
+            "$TOOLS/automake"
 
           ln -sf "$(brew --prefix libtool)/bin/glibtool" \
-            "$DEPS/built-tools/bin/libtool"
+            "$TOOLS/libtool"
 
           ln -sf "$(brew --prefix libtool)/bin/glibtoolize" \
-            "$DEPS/built-tools/bin/libtoolize"
+            "$TOOLS/libtoolize"
 
-      - name: Patch iOS build configuration
+          ln -sf "$(brew --prefix texinfo)/bin/texi2dvi" \
+            "$TOOLS/texi2dvi"
+
+          echo "$TOOLS" >> "$GITHUB_PATH"
+
+      - name: Configure environment
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          TOOLS="$GITHUB_WORKSPACE/build-tools/bin"
+
+          echo "LIBTOOLIZE=$TOOLS/libtoolize" >> "$GITHUB_ENV"
+          echo "LIBTOOL=$TOOLS/libtool" >> "$GITHUB_ENV"
+
+      - name: Patch Unity build script
         shell: python
         run: |
           from pathlib import Path
@@ -59,56 +86,186 @@ jobs:
           path = Path("external/buildscripts/build.pl")
           text = path.read_text()
 
-          replacements = {
-              'my $iosSdkVersion = "9.3";':
-                  'my $iosSdkVersion = "9.3";',
+          # build.pl tries to execute the shell builtin "source" directly.
+          text = text.replace(
+              'system("source","~/.profile");',
+              '# system("source","~/.profile");',
+              1
+          )
 
-              'my $iphoneOsMinVersion = "3.0";':
-                  'my $iphoneOsMinVersion = "9.3";',
+          # Do not enter Unity's private dependency-bootstrap block.
+          old = 'if ($externalBuildDeps ne "")'
+          new = 'if (0 && $externalBuildDeps ne "")'
 
-              'my $iosSdkRoot = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS$iosSdkVersion.sdk";':
-                  'my $iosSdkRoot = "$ENV{GITHUB_WORKSPACE}/iPhoneOS9.3.sdk";',
+          if old not in text:
+              raise SystemExit(
+                  "Could not find external dependency bootstrap block"
+              )
 
-              '$ENV{C_INCLUDE_PATH} = "$iosSdkRoot/usr/include";':
-                  '$ENV{C_INCLUDE_PATH} = "$iosSdkRoot/usr/include";',
+          text = text.replace(old, new, 1)
 
-              '$ENV{CPLUS_INCLUDE_PATH} = "$iosSdkRoot/usr/include";':
-                  '$ENV{CPLUS_INCLUDE_PATH} = "$iosSdkRoot/usr/include";',
+          # Use our downloaded iPhoneOS 9.3 SDK.
+          old = (
+              'my $iosSdkRoot = '
+              '"$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/'
+              'Platforms/iPhoneOS.platform/Developer/SDKs/'
+              'iPhoneOS$iosSdkVersion.sdk";'
+          )
 
-              '$ENV{CC} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -arch $iphoneArch";':
-                  '$ENV{CC} = `xcrun --sdk iphoneos -f clang`; chomp($ENV{CC});',
+          new = (
+              'my $iosSdkRoot = '
+              '"$ENV{GITHUB_WORKSPACE}/iPhoneOS9.3.sdk";'
+          )
 
-              '$ENV{CXX} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++ -arch $iphoneArch";':
-                  '$ENV{CXX} = `xcrun --sdk iphoneos -f clang++`; chomp($ENV{CXX});',
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS SDK root assignment"
+              )
 
-              '$ENV{LD} = "$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld";':
-                  '$ENV{LD} = `xcrun --sdk iphoneos -f ld`; chomp($ENV{LD});',
+          text = text.replace(old, new, 1)
 
-              '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -DHAVE_ARMV6=1 -DARM_FPU_VFP=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -mno-thumb -Os -isysroot $iosSdkRoot";':
-                  '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot";',
+          # Use the compiler from the runner's Xcode.
+          old = (
+              '$ENV{CC} = '
+              '"$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/'
+              'Toolchains/XcodeDefault.xctoolchain/usr/bin/clang '
+              '-arch $iphoneArch";'
+          )
 
-              '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__ -D__arm__";':
-                  '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__";',
+          new = (
+              '$ENV{CC} = `xcrun --sdk iphoneos -f clang`; '
+              'chomp($ENV{CC});'
+          )
 
-              'push @configureparams, "--host=arm-apple-darwin$darwinVersion";':
-                  'push @configureparams, "--host=aarch64-apple-darwin$darwinVersion";',
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS CC assignment"
+              )
 
-              'push @configureparams, "--with-bitcode=yes";':
-                  'push @configureparams, "--with-bitcode=no";',
-          }
+          text = text.replace(old, new, 1)
 
-          for old, new in replacements.items():
-              if old not in text:
-                  raise SystemExit(
-                      "Expected line not found in build.pl:\n" + old
-                  )
+          old = (
+              '$ENV{CXX} = '
+              '"$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/'
+              'Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++ '
+              '-arch $iphoneArch";'
+          )
 
-              text = text.replace(old, new, 1)
+          new = (
+              '$ENV{CXX} = `xcrun --sdk iphoneos -f clang++`; '
+              'chomp($ENV{CXX});'
+          )
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS CXX assignment"
+              )
+
+          text = text.replace(old, new, 1)
+
+          old = (
+              '$ENV{LD} = '
+              '"$iosBuildEnvDir/builds/Xcode.app/Contents/Developer/'
+              'Toolchains/XcodeDefault.xctoolchain/usr/bin/ld";'
+          )
+
+          new = (
+              '$ENV{LD} = `xcrun --sdk iphoneos -f ld`; '
+              'chomp($ENV{LD});'
+          )
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS LD assignment"
+              )
+
+          text = text.replace(old, new, 1)
+
+          # The old SDK is the sysroot, so these paths are valid again.
+          # Keep the assignments from the Unity script.
+
+          # Remove obsolete 32-bit ARM compiler flags.
+          old = (
+              '$ENV{CFLAGS} = '
+              '"$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG '
+              '-DHAVE_LARGE_FILE_SUPPORT=1 -DHAVE_ARMV6=1 '
+              '-DARM_FPU_VFP=1 -Wl,-application_extension '
+              '-miphoneos-version-min=$iphoneOsMinVersion '
+              '-mno-thumb -Os -isysroot $iosSdkRoot";'
+          )
+
+          new = (
+              '$ENV{CFLAGS} = '
+              '"$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG '
+              '-DHAVE_LARGE_FILE_SUPPORT=1 '
+              '-Wl,-application_extension '
+              '-miphoneos-version-min=$iphoneOsMinVersion '
+              '-Os -arch $iphoneArch -isysroot $iosSdkRoot";'
+          )
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS CFLAGS assignment"
+              )
+
+          text = text.replace(old, new, 1)
+
+          # Don't force the old 32-bit __arm__ define.
+          old = (
+              '$ENV{CXXFLAGS} = '
+              '"$ENV{CFLAGS} -U__powerpc__ -U__i386__ -D__arm__";'
+          )
+
+          new = (
+              '$ENV{CXXFLAGS} = '
+              '"$ENV{CFLAGS} -U__powerpc__ -U__i386__";'
+          )
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS CXXFLAGS assignment"
+              )
+
+          text = text.replace(old, new, 1)
+
+          # Configure Mono as ARM64, not ARM32.
+          old = (
+              'push @configureparams, '
+              '"--host=arm-apple-darwin$darwinVersion";'
+          )
+
+          new = (
+              'push @configureparams, '
+              '"--host=aarch64-apple-darwin$darwinVersion";'
+          )
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find iOS host assignment"
+              )
+
+          text = text.replace(old, new, 1)
+
+          # Old Unity builds request bitcode. Disable it for modern Xcode.
+          old = 'push @configureparams, "--with-bitcode=yes";'
+          new = 'push @configureparams, "--with-bitcode=no";'
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find bitcode configuration"
+              )
+
+          text = text.replace(old, new, 1)
 
           path.write_text(text)
 
+          print("build.pl patched successfully")
+
       - name: Build Mono
+        shell: bash
         run: |
+          set -euxo pipefail
+
           perl external/buildscripts/build.pl \
             --build=1 \
             --clean=1 \
@@ -120,6 +277,7 @@ jobs:
             --builddeps="$GITHUB_WORKSPACE/local-build-deps"
 
       - name: Upload build
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: unity-mono-ios-arm64-jit
