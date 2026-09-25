@@ -1,0 +1,200 @@
+name: Build Unity Mono iOS ARM64 JIT
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-10
+
+    steps:
+      # ------------------------------------------------------------
+      # Checkout Unity's Mono fork
+      # ------------------------------------------------------------
+      - name: Checkout Unity Mono
+        uses: actions/checkout@v4
+        with:
+          repository: Unity-Technologies/mono
+          ref: unity-2022.3-mbe
+          submodules: recursive
+          fetch-depth: 1
+
+      # ------------------------------------------------------------
+      # Select the Xcode version available on the hosted runner
+      # ------------------------------------------------------------
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          test -d /Applications/Xcode_7.3.app
+
+          sudo xcode-select -s \
+            /Applications/Xcode_7.3.app/Contents/Developer
+
+          echo "=== Xcode ==="
+          xcode-select -p
+          xcodebuild -version
+
+          echo
+          echo "=== iPhoneOS SDK ==="
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos -f clang
+          xcrun --sdk iphoneos -f clang++
+          xcrun --sdk iphoneos -f ld
+          
+      - name: Prepare local Mono build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+
+          mkdir -p "$DEPS/autoconf-2-69"
+          mkdir -p "$DEPS/automake-1-16-1"
+          mkdir -p "$DEPS/libtool-2-4-6"
+          mkdir -p "$DEPS/iOSBuildEnvironment/builds"
+          mkdir -p "$DEPS/built-tools/bin"
+
+          echo "Downloading autoconf..."
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz \
+            -o "$DEPS/autoconf-2-69/autoconf-2.69.tar.gz"
+
+          echo "Downloading automake..."
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/automake/automake-1.16.1.tar.gz \
+            -o "$DEPS/automake-1-16-1/automake-1.16.1.tar.gz"
+
+          echo "Downloading libtool..."
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/libtool/libtool-2.4.6.tar.gz \
+            -o "$DEPS/libtool-2-4-6/libtool-2.4.6.tar.gz"
+
+      # ------------------------------------------------------------
+      # build.pl expects an Xcode.app at this path.
+      #
+      # We don't have Unity's historical Xcode bundle, so point the
+      # expected path at the hosted runner's Xcode.
+      # ------------------------------------------------------------
+      - name: Provide Xcode compatibility layout
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+          XCODE_APP="/Applications/Xcode_7.3.app"
+
+          ln -sfn \
+            "$XCODE_APP" \
+            "$DEPS/iOSBuildEnvironment/builds/Xcode.app"
+
+          test -x \
+            "$DEPS/iOSBuildEnvironment/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+
+      - name: Build Mono
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          perl external/buildscripts/build.pl \
+            --build=1 \
+            --clean=1 \
+            --iphonearch=arm64 \
+            --disablemcs=1 \
+            --debug=1 \
+            --jobs=4 \
+            --stevedorebuilddeps=0 \
+            --builddeps="$GITHUB_WORKSPACE/local-build-deps"
+
+      - name: Inspect build artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "========================================"
+          echo "Build tree"
+          echo "========================================"
+
+          find builds -type f -print 2>/dev/null || true
+
+          echo
+          echo "========================================"
+          echo "Libraries"
+          echo "========================================"
+
+          find builds -type f \
+            \( \
+              -name '*.a' \
+              -o -name '*.dylib' \
+              -o -name '*.dSYM' \
+            \) \
+            -print 2>/dev/null || true
+
+      # ------------------------------------------------------------
+      # If configuration/build fails, leave useful diagnostics in the
+      # Actions log.
+      # ------------------------------------------------------------
+      - name: Dump diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          echo "========================================"
+          echo "Xcode"
+          echo "========================================"
+
+          xcode-select -p
+          xcodebuild -version
+
+          echo
+          echo "========================================"
+          echo "iOS SDK"
+          echo "========================================"
+
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+
+          echo
+          echo "========================================"
+          echo "config.log"
+          echo "========================================"
+
+          find . -name config.log -print 2>/dev/null
+
+          for f in $(find . -name config.log -print 2>/dev/null); do
+            echo
+            echo "========== $f =========="
+            tail -n 300 "$f"
+          done
+
+          echo
+          echo "========================================"
+          echo "Darwin logger"
+          echo "========================================"
+
+          sed -n '1,115p' mono/utils/mono-log-darwin.c
+
+          echo
+          echo "========================================"
+          echo "Relevant build.pl"
+          echo "========================================"
+
+          grep -n -A70 -B10 \
+            'if (\$iphone)' \
+            external/buildscripts/build.pl || true
+
+      # ------------------------------------------------------------
+      # Upload whatever build output exists.
+      # ------------------------------------------------------------
+      - name: Upload build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-ios-arm64-jit
+          path: |
+            builds/**
+          if-no-files-found: warn
