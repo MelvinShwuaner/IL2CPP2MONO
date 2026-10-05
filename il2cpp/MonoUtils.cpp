@@ -12,7 +12,18 @@
 static std::unordered_map<MonoMethod*, MethodInfo*> MethodCache;
 static std::unordered_map<MonoClass*, Il2CppClass*> ClassCache;
 static std::mutex Mutex;
+std::pair<std::string, std::string> SplitFullNameIntoComponents(const std::string& str)
+{
+    size_t pos = str.rfind('.');
 
+    if (pos == std::string::npos)
+        return { str, "" };
+
+    return {
+        str.substr(0, pos),
+        str.substr(pos + 1)
+    };
+}
 static void liveness_register_trampoline(
     gpointer* arr,
     int size,

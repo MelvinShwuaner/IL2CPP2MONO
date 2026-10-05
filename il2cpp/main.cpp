@@ -35,8 +35,12 @@ void ExtractMonoIfNecessary() {
 static bool IsMonoReady = false;
 
 int InitMono(const char* domain_name) {
-    DllPath = std::format("{}/mono", ExternalPath);
-    MonoPath = std::format("{}/mono", InternalPath);
+    if (DllPath.empty()) {
+        DllPath = std::format("{}/mono", ExternalPath);
+    }
+    if (MonoPath.empty()) {
+        MonoPath = std::format("{}/mono", InternalPath);
+    }
     ExtractMonoIfNecessary();
     mono_set_dirs(std::format("{}/lib", MonoPath).c_str(), MonoPath.c_str());
     mono_set_assemblies_path(DllPath.c_str());

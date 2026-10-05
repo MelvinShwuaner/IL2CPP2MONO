@@ -79,6 +79,32 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     return JNI_VERSION_1_6;
 }
 extern "C" {
+// il2cpp2mono api
+void il2cpp2mono_set_override_dirs(const char* dllpath, const char* monopath) {
+    if (dllpath != nullptr) {
+        DllPath = std::string(dllpath);
+    }
+    if (monopath != nullptr) {
+        MonoPath = std::string(monopath);
+    }
+}
+void il2cpp2mono_add_icall_interceptor(const char* name, Il2CppMethodPointer interceptor, Il2CppMethodPointer* original) {
+    Interceptors::InterceptorMap[name] = new Interceptors::Interceptor(interceptor, original);
+}
+//so we wont have to call a shit ton in fusioncore
+Il2CppMethodPointer* il2cppmono_get_delegate(const char* AssemblyPath, const char* klass, const char* method, int paramcount) {
+    auto pair = SplitFullNameIntoComponents(klass);
+    MonoAssembly* assembly = mono_domain_assembly_open(Domain, AssemblyPath);
+    if (!assembly)
+        return nullptr;
+    MonoClass* Class = mono_class_from_name(mono_assembly_get_image(assembly), pair.first.c_str(), pair.second.c_str());
+    if (!Class)
+        return nullptr;
+    MonoMethod* Method = mono_class_get_method_from_name(Class, method, paramcount);
+    if (!Method)
+        return nullptr;
+    return (Il2CppMethodPointer*) mono_compile_method(Method);
+}
 int il2cpp_init(const char* domain_name)
 {
     // Use environment's default locale
