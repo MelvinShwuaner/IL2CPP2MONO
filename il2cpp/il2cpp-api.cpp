@@ -92,7 +92,7 @@ void il2cpp2mono_add_icall_interceptor(const char* name, Il2CppMethodPointer int
     Interceptors::InterceptorMap[name] = new Interceptors::Interceptor(interceptor, original);
 }
 //so we wont have to call a shit ton in fusioncore
-Il2CppMethodPointer* il2cppmono_get_delegate(const char* AssemblyPath, const char* klass, const char* method, int paramcount) {
+Il2CppMethodPointer* il2cpp2mono_get_delegate(const char* AssemblyPath, const char* klass, const char* method, int paramcount) {
     auto pair = SplitFullNameIntoComponents(klass);
     MonoAssembly* assembly = mono_domain_assembly_open(Domain, AssemblyPath);
     if (!assembly)
