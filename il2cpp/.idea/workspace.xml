@@ -29,8 +29,6 @@
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/il2cpp-api.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/il2cpp-api.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/main.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -40,12 +38,78 @@
   <component name="ClangdSettings">
     <option name="formatViaClangd" value="false" />
   </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="58" />
+  </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
   </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="aS5m4TdU" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.9797566338346408" />
+      <entry key="MS500" value="6.108260559535419" />
+      <entry key="S2" value="16.317732349697284" />
+      <entry key="S5" value="29.457458824413408" />
+      <entry key="S10" value="42.12214264718265" />
+      <entry key="S30" value="68.17772783416673" />
+      <entry key="S60" value="84.28937087522117" />
+      <entry key="M2" value="95.8895392212044" />
+      <entry key="M5" value="104.46222372142441" />
+      <entry key="M10" value="107.64190488689812" />
+      <entry key="M15" value="108.74089531759788" />
+      <entry key="M30" value="109.86011890399881" />
+      <entry key="H1" value="110.42745038179369" />
+      <entry key="H2" value="110.71306953132998" />
+      <entry key="H4" value="110.85637042476563" />
+      <entry key="D1" value="110.97603887608436" />
+      <entry key="W1" value="110.99657642195417" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.8926534918647349" />
+      <entry key="MS500" value="6.049749375843471" />
+      <entry key="S2" value="16.27008459837217" />
+      <entry key="S5" value="29.420762271460013" />
+      <entry key="S10" value="42.095042027680364" />
+      <entry key="S30" value="68.1614308089185" />
+      <entry key="S60" value="84.27862744781817" />
+      <entry key="M2" value="95.88318508182252" />
+      <entry key="M5" value="104.45938400246813" />
+      <entry key="M10" value="107.64042905261327" />
+      <entry key="M15" value="108.73989847665551" />
+      <entry key="M30" value="109.85961387488334" />
+      <entry key="H1" value="110.42719618968636" />
+      <entry key="H2" value="110.712942012674" />
+      <entry key="H4" value="110.85630655938273" />
+      <entry key="D1" value="110.97602821708959" />
+      <entry key="W1" value="110.99657489887859" />
+    </decayedShown>
   </component>
   <component name="ProjectApplicationVersion">
     <option name="ide" value="CLion" />
@@ -68,6 +132,7 @@
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.RadMigrateCodeStyle&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
@@ -85,7 +150,7 @@
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;editor.preferences.completion.inline&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMThirdPartyAiProvidersConfigurable&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
@@ -122,6 +187,9 @@
       <workItem from="1790594950781" duration="440000" />
       <workItem from="1791210444164" duration="1048000" />
       <workItem from="1791212298562" duration="15000" />
+      <workItem from="1791212819785" duration="5537000" />
+      <workItem from="1791227057571" duration="305000" />
+      <workItem from="1791227401102" duration="766000" />
     </task>
     <servers />
   </component>
@@ -133,5 +201,9 @@
     <isAutomaticFoundErrors value="true" />
     <isAutomaticReloadCMake value="true" />
     <isAutomaticBootstrapAfterUpdate value="false" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
   </component>
 </project>
