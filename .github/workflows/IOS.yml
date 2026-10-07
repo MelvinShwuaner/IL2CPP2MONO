@@ -1,0 +1,293 @@
+name: Build Unity Mono iOS ARM64 JIT
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out Unity Mono
+        uses: actions/checkout@v4
+        with:
+          repository: Unity-Technologies/mono
+          ref: unity-2022.3-mbe
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            autoconf \
+            automake \
+            bison \
+            build-essential \
+            flex \
+            gettext \
+            libtool \
+            ninja-build \
+            perl \
+            pkg-config \
+            p7zip-full \
+            python3 \
+            rsync \
+            unzip \
+            wget \
+            curl \
+            git \
+            fakeroot \
+            dpkg
+
+      - name: Prepare local Mono build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+
+          mkdir -p "$DEPS/autoconf-2-69"
+          mkdir -p "$DEPS/automake-1-16-1"
+          mkdir -p "$DEPS/libtool-2-4-6"
+
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz \
+            -o "$DEPS/autoconf-2-69/autoconf-2.69.tar.gz"
+
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/automake/automake-1.16.1.tar.gz \
+            -o "$DEPS/automake-1-16-1/automake-1.16.1.tar.gz"
+
+          curl -fL --retry 5 --retry-delay 2 \
+            https://ftp.gnu.org/gnu/libtool/libtool-2.4.6.tar.gz \
+            -o "$DEPS/libtool-2-4-6/libtool-2.4.6.tar.gz"
+
+      - name: Install Theos
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          export THEOS="$HOME/theos"
+
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+
+      - name: Install Theos Linux->iOS toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p "$THEOS/toolchain/linux/iphone"
+
+          # Non-Swift toolchain — smaller, sufficient for compiling Mono's C/C++ sources
+          curl -fL --retry 5 --retry-delay 2 \
+            https://github.com/sbingner/llvm-project/releases/latest/download/linux-ios-arm64e-clang-toolchain.tar.lzma \
+            -o /tmp/toolchain.tar.lzma
+
+          tar -xf /tmp/toolchain.tar.lzma -C "$THEOS/toolchain/linux/iphone" --strip-components=1
+          rm -f /tmp/toolchain.tar.lzma
+
+      - name: Install iPhoneOS 9.3 SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p "$THEOS/sdks"
+
+          # Official theos/sdks release — confirmed to include iPhoneOS9.3.sdk
+          curl -fL --retry 5 --retry-delay 2 \
+            https://github.com/theos/sdks/releases/latest/download/iPhoneOS9.3.sdk.tar.lzma \
+            -o /tmp/sdk.tar.lzma \
+          || curl -fL --retry 5 --retry-delay 2 \
+            https://github.com/theos/sdks/archive/refs/heads/master.tar.gz \
+            -o /tmp/sdk.tar.gz
+
+          if [ -f /tmp/sdk.tar.lzma ]; then
+            tar -xf /tmp/sdk.tar.lzma -C "$THEOS/sdks"
+          else
+            mkdir -p /tmp/sdks-repo
+            tar -xf /tmp/sdk.tar.gz -C /tmp/sdks-repo --strip-components=1
+            cp -R /tmp/sdks-repo/iPhoneOS9.3.sdk "$THEOS/sdks/"
+          fi
+
+          test -d "$THEOS/sdks/iPhoneOS9.3.sdk"
+
+      - name: Discover actual toolchain binary names
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "===== Toolchain bin directory contents ====="
+          ls -la "$THEOS/toolchain/linux/iphone/bin/"
+
+          # Find the arm64 clang/clang++/ld binaries by pattern rather than
+          # assuming an exact name — confirm these three resolve to real files
+          # before anything downstream depends on them.
+          CLANG_BIN=$(find "$THEOS/toolchain/linux/iphone/bin" -iname "*arm64*clang" ! -iname "*clang++*" | head -n1)
+          CLANGXX_BIN=$(find "$THEOS/toolchain/linux/iphone/bin" -iname "*arm64*clang++*" | head -n1)
+          LD_BIN=$(find "$THEOS/toolchain/linux/iphone/bin" -iname "*ld*" | head -n1)
+
+          echo "Resolved CLANG_BIN=$CLANG_BIN"
+          echo "Resolved CLANGXX_BIN=$CLANGXX_BIN"
+          echo "Resolved LD_BIN=$LD_BIN"
+
+          test -x "$CLANG_BIN"
+          test -x "$CLANGXX_BIN"
+          test -x "$LD_BIN"
+
+          echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+          echo "CLANGXX_BIN=$CLANGXX_BIN" >> "$GITHUB_ENV"
+          echo "LD_BIN=$LD_BIN" >> "$GITHUB_ENV"
+
+      - name: Provide Xcode-shaped compatibility layout
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          # build.pl's ORIGINAL (unpatched) code joins paths relative to an
+          # "Xcode.app" bundle under here. Rather than rewriting build.pl's
+          # path-construction lines, we recreate that same bundle shape and
+          # populate it with Theos's SDK/toolchain — so the bulk of build.pl
+          # needs zero patching, minimizing what can go subtly wrong.
+          DEPS="$GITHUB_WORKSPACE/local-build-deps"
+          BUNDLE="$DEPS/iOSBuildEnvironment/builds/Xcode.app/Contents/Developer"
+
+          mkdir -p "$BUNDLE/Platforms/iPhoneOS.platform/Developer/SDKs"
+          mkdir -p "$BUNDLE/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+
+          ln -sfn "$THEOS/sdks/iPhoneOS9.3.sdk" \
+            "$BUNDLE/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS9.3.sdk"
+
+          ln -sfn "$CLANG_BIN"   "$BUNDLE/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+          ln -sfn "$CLANGXX_BIN" "$BUNDLE/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
+          ln -sfn "$LD_BIN"      "$BUNDLE/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld"
+
+          test -x "$BUNDLE/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+
+      - name: Patch Unity iOS build configuration (ARM64 flags only)
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("external/buildscripts/build.pl")
+          text = path.read_text()
+
+          # NOTE: iosSdkVersion is left untouched — "9.3" is now genuinely
+          # correct, since we're providing a real iPhoneOS9.3.sdk. The
+          # original CC/CXX/LD/iosSdkRoot lines are also left untouched,
+          # since the previous step gives them a real Xcode.app-shaped
+          # layout to resolve against.
+          #
+          # The only real patch needed is removing stale ARMv6/32-bit-only
+          # flags that don't apply to arm64, and disabling bitcode (Theos's
+          # linker doesn't implement Apple's proprietary bitcode embedding).
+
+          replacements = {
+              '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -DHAVE_ARMV6=1 -DARM_FPU_VFP=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -mno-thumb -Os -isysroot $iosSdkRoot";':
+                  '$ENV{CFLAGS} = "$iosCFlagsCommon -gdwarf-2 -DSMALL_CONFIG -DHAVE_LARGE_FILE_SUPPORT=1 -Wl,-application_extension -miphoneos-version-min=$iphoneOsMinVersion -Os -arch $iphoneArch -isysroot $iosSdkRoot";',
+
+              '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__ -D__arm__";':
+                  '$ENV{CXXFLAGS} = "$ENV{CFLAGS} -U__powerpc__ -U__i386__";',
+
+              'push @configureparams, "--with-bitcode=yes";':
+                  'push @configureparams, "--with-bitcode=no";',
+          }
+
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(
+                      "Expected original Unity build.pl line was not found:\n" + old
+                  )
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          print("build.pl patched successfully (ARM64 flags + bitcode only)")
+
+      # Both the "Patch iOS logging" and "Patch ARM64 Darwin ucontext" steps
+      # from the previous attempt are intentionally REMOVED here. They were
+      # only needed because that workflow silently compiled against a modern
+      # Xcode SDK despite claiming "9.3". os_log doesn't exist pre-iOS 10,
+      # and the __x[]-named ucontext fields are a modern-SDK naming scheme —
+      # neither should be in play against a genuine iPhoneOS9.3.sdk. If a
+      # related failure reappears here, that assumption needs revisiting
+      # against the real file content.
+
+      - name: Verify patches
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "=== JIT configure option ==="
+          grep -n 'enable-minimal=.*ssa,jit' external/buildscripts/build.pl || true
+
+          echo "=== ARM64 flags (should show no ARMV6/VFP/thumb/__arm__) ==="
+          grep -n 'HAVE_ARMV6\|ARM_FPU_VFP\|mno-thumb\|__arm__\|-arch \$iphoneArch' \
+            external/buildscripts/build.pl || true
+
+          echo "=== Bitcode setting ==="
+          grep -n 'with-bitcode' external/buildscripts/build.pl
+
+          echo "=== Resolved compatibility layout ==="
+          ls -la "$GITHUB_WORKSPACE/local-build-deps/iOSBuildEnvironment/builds/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/"
+
+      - name: Build Mono
+        shell: bash
+        run: |
+          set -o pipefail
+
+          perl external/buildscripts/build.pl \
+            --build=1 \
+            --clean=1 \
+            --iphonearch=arm64 \
+            --disablemcs=1 \
+            --debug=1 \
+            --jobs=4 \
+            --stevedorebuilddeps=0 \
+            --builddeps="$GITHUB_WORKSPACE/local-build-deps" \
+            2>&1 | tee "$GITHUB_WORKSPACE/mono-build.log"
+
+      - name: Show actual build errors
+        if: always()
+        shell: bash
+        run: |
+          echo "===== compiler/build errors ====="
+          grep -nEi \
+            'error CS[0-9]+|error [A-Z]+[0-9]+|fatal error|Unhandled Exception|Unhandled exception|Exception:|command not found|No such file|failed' \
+            mono-build.log || true
+
+          echo
+          echo "===== last 300 lines ====="
+          tail -n 300 mono-build.log
+
+      - name: Show generated artifacts
+        if: success()
+        shell: bash
+        run: |
+          echo "===== ARM64 artifacts ====="
+          find builds -type f \( -name '*.a' -o -name '*.dylib' \) -print 2>/dev/null | sort
+
+      - name: Dump diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "================ config.log ================"
+          find . -name "config.log" -exec tail -n 400 {} \;
+
+          echo "================ Toolchain/SDK layout ================"
+          ls -la "$THEOS/toolchain/linux/iphone/bin/" 2>/dev/null
+          ls -la "$THEOS/sdks/" 2>/dev/null
+
+      - name: Upload build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-ios-arm64-jit
+          path: |
+            builds/**
+          if-no-files-found: warn
