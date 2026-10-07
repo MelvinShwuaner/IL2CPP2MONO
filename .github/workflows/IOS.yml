@@ -117,28 +117,22 @@ jobs:
 
           test -d "$THEOS/sdks/iPhoneOS9.3.sdk"
 
-      - name: Discover actual toolchain binary names
+      - name: Resolve toolchain binary paths
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "===== Toolchain bin directory contents ====="
-          ls -la "$THEOS/toolchain/linux/iphone/bin/"
-
-          # Find the arm64 clang/clang++/ld binaries by pattern rather than
-          # assuming an exact name — confirm these three resolve to real files
-          # before anything downstream depends on them.
-          CLANG_BIN=$(find "$THEOS/toolchain/linux/iphone/bin" -iname "*arm64*clang" ! -iname "*clang++*" | head -n1)
-          CLANGXX_BIN=$(find "$THEOS/toolchain/linux/iphone/bin" -iname "*arm64*clang++*" | head -n1)
-          LD_BIN=$(find "$THEOS/toolchain/linux/iphone/bin" -iname "*ld*" | head -n1)
-
-          echo "Resolved CLANG_BIN=$CLANG_BIN"
-          echo "Resolved CLANGXX_BIN=$CLANGXX_BIN"
-          echo "Resolved LD_BIN=$LD_BIN"
+          CLANG_BIN="$THEOS/toolchain/linux/iphone/bin/clang"
+          CLANGXX_BIN="$THEOS/toolchain/linux/iphone/bin/clang++"
+          LD_BIN="$THEOS/toolchain/linux/iphone/bin/ld"
 
           test -x "$CLANG_BIN"
           test -x "$CLANGXX_BIN"
           test -x "$LD_BIN"
+
+          echo "Resolved CLANG_BIN=$CLANG_BIN"
+          echo "Resolved CLANGXX_BIN=$CLANGXX_BIN"
+          echo "Resolved LD_BIN=$LD_BIN"
 
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
           echo "CLANGXX_BIN=$CLANGXX_BIN" >> "$GITHUB_ENV"
