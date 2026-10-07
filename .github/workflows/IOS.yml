@@ -92,9 +92,10 @@ jobs:
           tar -xf /tmp/toolchain.tar.lzma -C "$THEOS/toolchain/linux/iphone" --strip-components=1
           rm -f /tmp/toolchain.tar.lzma
 
+       
       - name: Install iPhoneOS 9.3 SDK
-         shell: bash
-         run: |
+        shell: bash
+        run: |
            set -euxo pipefail
 
            mkdir -p "$THEOS/sdks"
