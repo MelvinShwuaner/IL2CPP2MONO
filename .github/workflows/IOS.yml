@@ -93,29 +93,26 @@ jobs:
           rm -f /tmp/toolchain.tar.lzma
 
       - name: Install iPhoneOS 9.3 SDK
-        shell: bash
-        run: |
-          set -euxo pipefail
+         shell: bash
+         run: |
+           set -euxo pipefail
 
-          mkdir -p "$THEOS/sdks"
+           mkdir -p "$THEOS/sdks"
 
-          # Official theos/sdks release — confirmed to include iPhoneOS9.3.sdk
-          curl -fL --retry 5 --retry-delay 2 \
-            https://github.com/theos/sdks/releases/latest/download/iPhoneOS9.3.sdk.tar.lzma \
-            -o /tmp/sdk.tar.lzma \
-          || curl -fL --retry 5 --retry-delay 2 \
-            https://github.com/theos/sdks/archive/refs/heads/master.tar.gz \
-            -o /tmp/sdk.tar.gz
+           # Try official release first, then fallback to cloning the repo
+           if curl -fL --retry 5 --retry-delay 2 \
+             https://github.com/theos/sdks/releases/download/v1.0/iPhoneOS9.3.sdk.tar.lzma \
+             -o /tmp/sdk.tar.lzma 2>/dev/null; then
+             tar -xf /tmp/sdk.tar.lzma -C "$THEOS/sdks"
+             rm -f /tmp/sdk.tar.lzma
+           else
+             # Fallback: clone the theos/sdks repo directly
+             git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks-repo
+             cp -R /tmp/sdks-repo/iPhoneOS9.3.sdk "$THEOS/sdks/"
+             rm -rf /tmp/sdks-repo
+           fi
 
-          if [ -f /tmp/sdk.tar.lzma ]; then
-            tar -xf /tmp/sdk.tar.lzma -C "$THEOS/sdks"
-          else
-            mkdir -p /tmp/sdks-repo
-            tar -xf /tmp/sdk.tar.gz -C /tmp/sdks-repo --strip-components=1
-            cp -R /tmp/sdks-repo/iPhoneOS9.3.sdk "$THEOS/sdks/"
-          fi
-
-          test -d "$THEOS/sdks/iPhoneOS9.3.sdk"
+           test -d "$THEOS/sdks/iPhoneOS9.3.sdk"
 
       - name: Resolve toolchain binary paths
         shell: bash
