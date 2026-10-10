@@ -4,10 +4,8 @@
 #include "il2cpp-api-types.h"
 #include "mono/metadata/loader.h"
 #include "mono/metadata/object.h"
-#include <android/log.h>
 
 #include "mono/metadata/tabledefs.h"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP", __VA_ARGS__)
 namespace Interceptors {
     struct Interceptor {
         Interceptor(Il2CppMethodPointer m, Il2CppMethodPointer* o) : method(m), original(o) {}

@@ -7,10 +7,13 @@
 #include <format>
 #include "Utils.cpp"
 #include "MonoUtils.cpp"
-#include "JNI.cpp"
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "IL2CPP", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP", __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IL2CPP", __VA_ARGS__)
+#if ANDROID
+#include "Android.cpp"
+#else
+#include "IOS.h"
+#endif
+#define LOGW(...) log_format(LOG_WARN, "IL2CPP", __VA_ARGS__)
+#define LOGI(...) log_format(LOG_INFO, "IL2CPP", __VA_ARGS__)
 static std::string DllPath;
 static std::string MonoPath;
 void ExtractMonoIfNecessary() {
@@ -36,13 +39,13 @@ static bool IsMonoReady = false;
 
 int InitMono(const char* domain_name) {
     if (DllPath.empty()) {
-        DllPath = std::format("{}/mono", ExternalPath);
+        DllPath = fmt::format("{}/mono", ExternalPath);
     }
     if (MonoPath.empty()) {
-        MonoPath = std::format("{}/mono", InternalPath);
+        MonoPath = fmt::format("{}/mono", InternalPath);
     }
     ExtractMonoIfNecessary();
-    mono_set_dirs(std::format("{}/lib", MonoPath).c_str(), MonoPath.c_str());
+    mono_set_dirs(fmt::format("{}/lib", MonoPath).c_str(), MonoPath.c_str());
     mono_set_assemblies_path(DllPath.c_str());
     mono_config_parse (NULL);
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");
@@ -50,7 +53,7 @@ int InitMono(const char* domain_name) {
         LOGE("mono_jit_init_version failed — corlib likely not found, check managed path");
         return -1;
     }
-    LOGI("Mono initialized, domain = %p", Domain);
+    LOGI("Mono initialized, domain = %p", (void*)Domain);
     IsMonoReady = true;
     LoadInterceptors();
     FlushICallQueue();

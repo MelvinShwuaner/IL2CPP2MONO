@@ -1,4 +1,4 @@
-#pragma once
+
 /*#include "il2cpp-api.h"
 #include "il2cpp-object-internals.h"
 #include "il2cpp-runtime-stats.h"
@@ -45,9 +45,8 @@
 */
 #include <locale.h>
 #include <fstream>
-#include <jni.h>
 #include <string>
-#include <android/log.h>
+#include "Logger.h"
 
 #include "il2cpp-api-types.h"
 #include "main.cpp"
@@ -61,23 +60,9 @@ typedef size_t il2cpp_array_size_t;
 #include <cstring>
 #include <unistd.h>
 //used for debugging when necessary
-#define LOGCALL() //__android_log_print(ANDROID_LOG_DEBUG, "IL2CPPAPI", "%s", __FUNCTION__);
-#define LOGCALL2() __android_log_print(ANDROID_LOG_DEBUG, "IL2CPPAPI", "%s", __FUNCTION__);
-#define LOGMSG(...) __android_log_print(ANDROID_LOG_DEBUG, "IL2CPPAPI", "%s %s", __FUNCTION__, __VA_ARGS__);
-#define LOGMSG2(...) __android_log_print(ANDROID_LOG_DEBUG, "IL2CPPAPI", __VA_ARGS__);
+#define LOGCALL() //log_format(LOG_DEBUG, "IL2CPPAPI", "api call called: {}", __FUNCTION__)
+#define LOGCALL2() log_format(LOG_DEBUG, "IL2CPPAPI", "missing api call called: {}", __FUNCTION__)
 
-JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
-    __android_log_print(ANDROID_LOG_INFO, "libil2cpp", "JNI_Load");
-    JVM = vm;
-    JNIEnv* env;
-    if (vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        return JNI_ERR;
-    }
-    if (Init(env) == 0) {
-      //  __android_log_print(ANDROID_LOG_INFO, "libil2cpp", "JNI_Load failed to initialize!");
-    }
-    return JNI_VERSION_1_6;
-}
 extern "C" {
 // il2cpp2mono api
 void il2cpp2mono_set_override_dirs(const char* dllpath, const char* monopath) {
@@ -173,7 +158,7 @@ const Il2CppAssembly* il2cpp_domain_assembly_open(Il2CppDomain* domain, const ch
 {
     LOGCALL();
     //MonoImageOpenStatus status;
-    std::string path = std::format("{}/{}", DllPath, name);
+    std::string path = fmt::format("{}/{}", DllPath, name);
     MonoAssembly* asm_ = mono_domain_assembly_open((MonoDomain*)domain, path.c_str());
     if (!asm_) {
         LOGW("missing assembly %s", path.c_str());
@@ -387,7 +372,6 @@ void il2cpp_field_static_set_value(FieldInfo* field, void* value)
 
 Il2CppObject* il2cpp_runtime_invoke(const MethodInfo* method, void* obj, void** params, Il2CppException** exc)
 {
-    //LOGMSG2("%s.%s", method->klass->name, method->name);
     MonoObject* monoExc = nullptr;
     MonoObject* result = mono_runtime_invoke(method->originalMethod, obj, params, &monoExc);
     if (exc) *exc = (Il2CppException*)monoExc;

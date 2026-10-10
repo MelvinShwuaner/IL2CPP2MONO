@@ -2,16 +2,15 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
-#include <android/log.h>
+#include "Logger.h"
 #include <miniz/miniz.h>
 #include <sys/stat.h>
-#include <elf.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <dlfcn.h>
 #include <fstream>
 
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IL2CPP Utils", __VA_ARGS__)
+#define LOGE(...) log_format(LOG_ERROR, "IL2CPP_UTILS", __VA_ARGS__)
 static void MakeDirsRecursive(const std::string& path) {
     std::string current;
     size_t pos = 0;
