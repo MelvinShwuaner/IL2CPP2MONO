@@ -449,6 +449,16 @@ jobs:
               "$(unity_gc_dependent_sources) $(sgen_sources)",
           )
 
+          # asl_log () is deprecated since iOS 10, which is an error in the
+          # runtime now that the deployment target is past that. Log through
+          # os_log () instead, as this file already does on watchOS and
+          # Mac Catalyst.
+          edit(
+              "mono/utils/mono-log-darwin.c",
+              "|| defined(HOST_MACCAT)\n",
+              "|| defined(HOST_MACCAT) || (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 100000)\n",
+          )
+
           # ---------------------------------------------------------------
           # JIT code memory (see mono/utils/mono-ios-jit.h)
           # ---------------------------------------------------------------
