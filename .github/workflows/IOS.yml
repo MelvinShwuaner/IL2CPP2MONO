@@ -459,6 +459,22 @@ jobs:
               "|| defined(HOST_MACCAT) || (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 100000)\n",
           )
 
+          # The second field of struct objc_super is called class or
+          # super_class depending on the SDK, and the test used here to tell
+          # them apart picks the wrong one with the current SDK. Fill the
+          # struct by position instead.
+          edit(
+              "mono/utils/mono-threads-mach-helper.c",
+              "\tstruct objc_super super;\n"
+              "\tsuper.receiver = self;\n"
+              "#if !defined(__cplusplus) && !__OBJC2__\n"
+              "\tsuper.class = nsobject;\n"
+              "#else\n"
+              "\tsuper.super_class = nsobject;\n"
+              "#endif\n",
+              "\tstruct objc_super super = { self, nsobject };\n",
+          )
+
           # ---------------------------------------------------------------
           # JIT code memory (see mono/utils/mono-ios-jit.h)
           # ---------------------------------------------------------------
@@ -621,6 +637,9 @@ jobs:
           # The AOT compiler is built along with the JIT and must not
           # call system (), which the iOS SDK forbids. The simulator
           # targets of ios.mk, which are JIT runtimes, set the same.
+          #
+          # -k keeps going after an error, so that one run reports every
+          # file that fails to compile instead of only the first one.
           make -C sdks/builds \
             ENABLE_IOS=1 \
             CONFIGURATION=release \
@@ -628,6 +647,7 @@ jobs:
             IOS_VERSION_MIN="$IOS_VERSION_MIN" \
             ios-target64_AC_VARS="ac_cv_func_system=no" \
             -j"$(sysctl -n hw.logicalcpu)" \
+            -k \
             package-ios-target64 \
             2>&1 | tee "$GITHUB_WORKSPACE/mono-build.log"
 
@@ -640,6 +660,14 @@ jobs:
           grep -nEi \
             'error: |error [A-Z]+[0-9]+|fatal error|Undefined symbols|command not found|No such file|failed' \
             mono-build.log \
+            || true
+
+          # The same errors with the lines that follow them, in a file
+          # small enough to pass around.
+          grep -nE -A8 \
+            ' error: |Undefined symbols for architecture|^ld: ' \
+            mono-build.log \
+            > mono-build-errors.txt \
             || true
 
           echo
@@ -699,6 +727,7 @@ jobs:
           name: unity-mono-build-log
           path: |
             mono-build.log
+            mono-build-errors.txt
             sdks/builds/ios-target64-release/config.log
           if-no-files-found: error
           compression-level: 6
