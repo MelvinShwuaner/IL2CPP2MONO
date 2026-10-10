@@ -1,0 +1,808 @@
+name: Build Unity Mono iOS ARM64
+
+# Builds libmonosgen-2.0 for iOS devices (arm64) as a JIT runtime with
+# SGen and Unity liveness, from the same branch as the Android build.
+#
+# Using the result on a device:
+#   - The app has to be signed with get-task-allow and have JIT enabled
+#     by a debugger-based enabler such as StikDebug (iOS 17.4+). Mono
+#     waits up to 15 s for that when it first needs code memory.
+#   - On devices with TXM (iOS 26 and later), launch the app through
+#     StikDebug with its universal script: Mono asks the debugger for
+#     its code region. Elsewhere it maps the region itself.
+#   - All JIT code lives in one region of 128 MB. Set the environment
+#     variable MONO_IOS_JIT_POOL_MB before starting Mono to resize it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IOS_VERSION_MIN: "17.4"
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out Unity Mono
+        uses: actions/checkout@v4
+        with:
+          repository: Unity-Technologies/mono
+          ref: unity-2022.3-mbe
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install \
+            autoconf \
+            automake \
+            gettext \
+            libtool \
+            pkg-config
+
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Configure Mono for JIT, SGen GC and Unity liveness
+        shell: bash
+        run: |
+          set -e
+
+          cat > mono/utils/mono-ios-jit.h <<'EOF'
+          /**
+           * \file
+           * JIT code memory on iOS devices.
+           *
+           * iOS never maps memory writable and executable at the same time, and it
+           * only runs unsigned code in a process a debugger has attached to
+           * (CS_DEBUGGED), which is what JIT enablers such as StikDebug arrange.
+           * All JIT code therefore lives in one region that is mapped twice:
+           * read+execute at mono_ios_jit_rx, and read+write mono_ios_jit_rw_delta
+           * bytes further. Code runs from the first mapping and is written
+           * through the second one.
+           */
+
+          #ifndef __MONO_UTILS_IOS_JIT_H__
+          #define __MONO_UTILS_IOS_JIT_H__
+
+          #if defined(HOST_IOS) && defined(__aarch64__)
+
+          #include <string.h>
+
+          #define MONO_IOS_JIT_POOL 1
+
+          extern unsigned char *mono_ios_jit_rx;
+          extern unsigned long mono_ios_jit_size;
+          extern long mono_ios_jit_rw_delta;
+
+          static inline __attribute__((always_inline, unused)) void *
+          mono_ios_jit_writable (const void *p)
+          {
+              if ((unsigned long)p - (unsigned long)mono_ios_jit_rx < mono_ios_jit_size)
+                  return (void *)((unsigned long)p + mono_ios_jit_rw_delta);
+              return (void *)p;
+          }
+
+          /* The address the code or data at P has to be written through. */
+          #define MONO_JIT_W(p) mono_ios_jit_writable (p)
+
+          /* Block writes can target JIT code as well. */
+          #undef memcpy
+          #undef memmove
+          #undef memset
+          #define memcpy(dest, src, n) __builtin_memcpy (MONO_JIT_W (dest), (src), (n))
+          #define memmove(dest, src, n) __builtin_memmove (MONO_JIT_W (dest), (src), (n))
+          #define memset(dest, c, n) __builtin_memset (MONO_JIT_W (dest), (c), (n))
+
+          #else
+
+          #define MONO_JIT_W(p) (p)
+
+          #endif
+
+          #endif /* __MONO_UTILS_IOS_JIT_H__ */
+
+          #if defined(MONO_IOS_JIT_IMPLEMENTATION) && defined(MONO_IOS_JIT_POOL)
+
+          #include <errno.h>
+          #include <pthread.h>
+          #include <signal.h>
+          #include <sys/mman.h>
+          #include <sys/sysctl.h>
+          #include <mach/mach.h>
+
+          #define IOS_JIT_DEFAULT_POOL_MB 128
+
+          /* Not declared in the iOS SDK. */
+          int csops (pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+          #define IOS_CS_OPS_STATUS 0
+          #define IOS_CS_DEBUGGED 0x10000000
+
+          unsigned char *mono_ios_jit_rx;
+          unsigned long mono_ios_jit_size;
+          long mono_ios_jit_rw_delta;
+
+          typedef struct _IosJitBlock IosJitBlock;
+          struct _IosJitBlock {
+              IosJitBlock *next;
+              gsize start, size;
+          };
+
+          static pthread_mutex_t ios_jit_mutex = PTHREAD_MUTEX_INITIALIZER;
+          /* The unused parts of the region, sorted by address. */
+          static IosJitBlock *ios_jit_free_blocks;
+          /* The sizes of the blocks handed out by ios_jit_malloc (). */
+          static GHashTable *ios_jit_malloc_sizes;
+          static volatile int ios_jit_brk_skipped;
+
+          /*
+           * On devices with TXM (iOS 26 and later) a page only becomes executable
+           * once the attached debugger has written to it, so the region has to
+           * come from the debugger. This is the StikDebug protocol: a script
+           * running in the debugger services brk #0xf00d, taking a command in x16
+           * (0: detach, 1: prepare a region) and its arguments in x0/x1. It
+           * leaves the result in x0 and resumes after the brk.
+           */
+          static __attribute__((noinline, optnone, naked)) void *
+          ios_jit_brk_prepare_region (void *addr, size_t len)
+          {
+              __asm__ (
+                  "mov x16, #1\n"
+                  "brk #0xf00d\n"
+                  "ret\n");
+          }
+
+          static __attribute__((noinline, optnone, naked)) void
+          ios_jit_brk_detach (void)
+          {
+              __asm__ (
+                  "mov x16, #0\n"
+                  "brk #0xf00d\n"
+                  "ret\n");
+          }
+
+          /* Runs when nothing serviced the brk: step over it and fail the request. */
+          static void
+          ios_jit_sigtrap_handler (int sig, siginfo_t *info, void *context)
+          {
+              ucontext_t *uc = (ucontext_t *)context;
+
+              uc->uc_mcontext->__ss.__x [0] = 0;
+              uc->uc_mcontext->__ss.__pc += 4;
+              ios_jit_brk_skipped = 1;
+          }
+
+          static void *
+          ios_jit_debugger_request (gboolean detach, gsize size)
+          {
+              struct sigaction action, old_action;
+              void *res = NULL;
+
+              memset (&action, 0, sizeof (action));
+              action.sa_sigaction = ios_jit_sigtrap_handler;
+              action.sa_flags = SA_SIGINFO;
+              sigaction (SIGTRAP, &action, &old_action);
+
+              ios_jit_brk_skipped = 0;
+              if (detach)
+                  ios_jit_brk_detach ();
+              else
+                  res = ios_jit_brk_prepare_region (NULL, size);
+
+              sigaction (SIGTRAP, &old_action, NULL);
+              return ios_jit_brk_skipped ? NULL : res;
+          }
+
+          static gboolean
+          ios_jit_enabled (void)
+          {
+              guint32 flags = 0;
+
+              return csops (getpid (), IOS_CS_OPS_STATUS, &flags, sizeof (flags)) == 0 && (flags & IOS_CS_DEBUGGED);
+          }
+
+          static gboolean
+          ios_jit_debugger_attached (void)
+          {
+              int mib [4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid () };
+              struct kinfo_proc info;
+              size_t size = sizeof (info);
+
+              memset (&info, 0, sizeof (info));
+              return sysctl (mib, 4, &info, &size, NULL, 0) == 0 && (info.kp_proc.p_flag & P_TRACED);
+          }
+
+          static gboolean
+          ios_jit_is_executable (void *addr)
+          {
+              vm_address_t start = (vm_address_t)addr;
+              vm_size_t size = 0;
+              vm_region_basic_info_data_64_t info;
+              mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+              mach_port_t object = MACH_PORT_NULL;
+
+              if (!addr || ((gsize)addr & (mono_pagesize () - 1)))
+                  return FALSE;
+              if (vm_region_64 (mach_task_self (), &start, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count, &object) != KERN_SUCCESS)
+                  return FALSE;
+              return start <= (vm_address_t)addr && (info.protection & VM_PROT_EXECUTE);
+          }
+
+          /* LOCKING: Assumes ios_jit_mutex is held. */
+          static void
+          ios_jit_pool_init (void)
+          {
+              const char *env = getenv ("MONO_IOS_JIT_POOL_MB");
+              gsize size = (gsize)(env && atoi (env) > 0 ? atoi (env) : IOS_JIT_DEFAULT_POOL_MB) << 20;
+              vm_address_t rw = 0;
+              vm_prot_t cur_prot, max_prot;
+              gboolean from_debugger;
+              IosJitBlock *block;
+              void *rx = NULL;
+              int i;
+
+              /* JIT enablers attach after the process has started. */
+              for (i = 0; !ios_jit_enabled (); ++i) {
+                  if (i == 150)
+                      g_error ("JIT is not enabled for this process (CS_DEBUGGED is not set), use a JIT enabler such as StikDebug.");
+                  usleep (100 * 1000);
+              }
+              /* Plain enablers detach right away, the ones running a script stay. */
+              usleep (300 * 1000);
+
+              for (i = 0; i < 3 && !rx && ios_jit_debugger_attached (); ++i) {
+                  rx = ios_jit_debugger_request (FALSE, size);
+                  if (!ios_jit_is_executable (rx)) {
+                      rx = NULL;
+                      usleep (100 * 1000);
+                  }
+              }
+              from_debugger = rx != NULL;
+
+              if (!rx) {
+                  /* This is enough where there is no TXM. */
+                  rx = mmap (NULL, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+                  if (rx == MAP_FAILED)
+                      g_error ("Could not map the JIT code region: %s", strerror (errno));
+              }
+
+              if (vm_remap (mach_task_self (), &rw, size, 0, VM_FLAGS_ANYWHERE, mach_task_self (), (vm_address_t)rx, FALSE, &cur_prot, &max_prot, VM_INHERIT_NONE) != KERN_SUCCESS ||
+                  vm_protect (mach_task_self (), rw, size, FALSE, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS)
+                  g_error ("Could not create the writable mapping of the JIT code region.");
+
+              /* Pages cannot be prepared after this, the region never grows. */
+              if (from_debugger)
+                  ios_jit_debugger_request (TRUE, 0);
+
+              block = g_new0 (IosJitBlock, 1);
+              block->start = (gsize)rx;
+              block->size = size;
+              ios_jit_free_blocks = block;
+
+              mono_ios_jit_rw_delta = (long)(rw - (vm_address_t)rx);
+              mono_ios_jit_size = size;
+              mono_ios_jit_rx = (unsigned char *)rx;
+
+              g_message ("JIT code region: %d MB at %p, %s", (int)(size >> 20), rx, from_debugger ? "prepared by the debugger" : "mapped by the process");
+          }
+
+          /* Returns zeroed memory. */
+          static gpointer
+          ios_jit_alloc (gsize size)
+          {
+              IosJitBlock *block, *before = NULL;
+              gpointer res = NULL;
+
+              size = (size + 15) & ~(gsize)15;
+
+              pthread_mutex_lock (&ios_jit_mutex);
+              if (!mono_ios_jit_rx)
+                  ios_jit_pool_init ();
+              for (block = ios_jit_free_blocks; block && block->size < size; block = block->next)
+                  before = block;
+              if (block) {
+                  res = (gpointer)block->start;
+                  block->start += size;
+                  block->size -= size;
+                  if (!block->size) {
+                      if (before)
+                          before->next = block->next;
+                      else
+                          ios_jit_free_blocks = block->next;
+                      g_free (block);
+                  }
+              }
+              pthread_mutex_unlock (&ios_jit_mutex);
+
+              if (!res)
+                  g_error ("The JIT code region (%d MB) is full, set MONO_IOS_JIT_POOL_MB to a larger size.", (int)(mono_ios_jit_size >> 20));
+
+              memset (res, 0, size);
+              return res;
+          }
+
+          static void
+          ios_jit_free (gpointer ptr, gsize size)
+          {
+              IosJitBlock *block, *next, *before = NULL;
+
+              block = g_new0 (IosJitBlock, 1);
+              block->start = (gsize)ptr;
+              block->size = (size + 15) & ~(gsize)15;
+
+              pthread_mutex_lock (&ios_jit_mutex);
+              for (next = ios_jit_free_blocks; next && next->start < block->start; next = next->next)
+                  before = next;
+              block->next = next;
+              if (before)
+                  before->next = block;
+              else
+                  ios_jit_free_blocks = block;
+
+              /* Merge with the neighbours. */
+              if (next && block->start + block->size == next->start) {
+                  block->size += next->size;
+                  block->next = next->next;
+                  g_free (next);
+              }
+              if (before && before->start + before->size == block->start) {
+                  before->size += block->size;
+                  before->next = block->next;
+                  g_free (block);
+              }
+              pthread_mutex_unlock (&ios_jit_mutex);
+          }
+
+          static gpointer
+          ios_jit_malloc (gsize size)
+          {
+              gpointer res = ios_jit_alloc (size);
+
+              pthread_mutex_lock (&ios_jit_mutex);
+              if (!ios_jit_malloc_sizes)
+                  ios_jit_malloc_sizes = g_hash_table_new (NULL, NULL);
+              g_hash_table_insert (ios_jit_malloc_sizes, res, (gpointer)size);
+              pthread_mutex_unlock (&ios_jit_mutex);
+
+              return res;
+          }
+
+          static void
+          ios_jit_mfree (gpointer ptr)
+          {
+              gsize size;
+
+              pthread_mutex_lock (&ios_jit_mutex);
+              size = (gsize)g_hash_table_lookup (ios_jit_malloc_sizes, ptr);
+              g_hash_table_remove (ios_jit_malloc_sizes, ptr);
+              pthread_mutex_unlock (&ios_jit_mutex);
+
+              ios_jit_free (ptr, size);
+          }
+
+          #endif /* MONO_IOS_JIT_IMPLEMENTATION && MONO_IOS_JIT_POOL */
+          EOF
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+
+          def edit(path, old, new):
+              path = Path(path)
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise RuntimeError(f"{path}: expected exactly one match for {old!r}")
+              path.write_text(text.replace(old, new))
+
+
+          # ---------------------------------------------------------------
+          # Build configuration
+          # ---------------------------------------------------------------
+
+          ios_mk = "sdks/builds/ios.mk"
+
+          # The stock device target is full-AOT only ("jit" is in the list of
+          # disabled features). Use the feature set of the Android target
+          # instead, which is a JIT runtime ("com" and "shared_perfcounters"
+          # stay off, as on every iOS target).
+          edit(
+              ios_mk,
+              "\t--enable-minimal=ssa,com,interpreter,jit,portability,"
+              "assembly_remapping,attach,verifier,full_messages,appdomains,"
+              "security,sgen_remset,sgen_marksweep_par,sgen_marksweep_fixed,"
+              "sgen_marksweep_fixed_par,sgen_copying,logging,remoting,"
+              "shared_perfcounters,gac \\\n",
+              "\t--enable-minimal=ssa,com,portability,attach,verifier,"
+              "full_messages,security,sgen_remset,sgen_marksweep_par,"
+              "sgen_marksweep_fixed,sgen_marksweep_fixed_par,sgen_copying,"
+              "logging,shared_perfcounters,shared_handles,interpreter,gac,"
+              "cfgdir_config \\\n",
+          )
+
+          # A JIT runtime resolves icalls by name at run time, so the icall
+          # tables must be linked into libmonosgen instead of being split out
+          # into libmono-icall-table.a.
+          edit(ios_mk, "\t--disable-icall-tables \\\n", "")
+
+          # With this flag the embedding host has to create the GC threads
+          # itself, as Xamarin.iOS does. Let the runtime do it.
+          edit(ios_mk, "\t--with-lazy-gc-thread-creation=yes \\\n", "")
+
+          # unity-liveness.c is already listed in unity_gc_dependent_sources,
+          # but this branch only adds that source list to the Boehm runtime.
+          # Add it to SGen too.
+          edit(
+              "mono/metadata/Makefile.am",
+              "libmonoruntimesgen_la_SOURCES = "
+              "$(common_sources) $(icall_tables_sources) "
+              "$(ilgen_sources) $(gc_dependent_sources) $(sgen_sources)",
+              "libmonoruntimesgen_la_SOURCES = "
+              "$(common_sources) $(icall_tables_sources) "
+              "$(ilgen_sources) $(gc_dependent_sources) "
+              "$(unity_gc_dependent_sources) $(sgen_sources)",
+          )
+
+          # ---------------------------------------------------------------
+          # Code the current SDK and compiler reject
+          # ---------------------------------------------------------------
+
+          # asl_log () is deprecated since iOS 10, which is an error in the
+          # runtime now that the deployment target is past that. Log through
+          # os_log () instead, as this file already does on watchOS and
+          # Mac Catalyst.
+          edit(
+              "mono/utils/mono-log-darwin.c",
+              "|| defined(HOST_MACCAT)\n",
+              "|| defined(HOST_MACCAT) || (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 100000)\n",
+          )
+
+          # The second field of struct objc_super is called class or
+          # super_class depending on the SDK, and the test used here to tell
+          # them apart picks the wrong one with the current SDK. Fill the
+          # struct by position instead.
+          edit(
+              "mono/utils/mono-threads-mach-helper.c",
+              "\tstruct objc_super super;\n"
+              "\tsuper.receiver = self;\n"
+              "#if !defined(__cplusplus) && !__OBJC2__\n"
+              "\tsuper.class = nsobject;\n"
+              "#else\n"
+              "\tsuper.super_class = nsobject;\n"
+              "#endif\n",
+              "\tstruct objc_super super = { self, nsobject };\n",
+          )
+
+          # getsectbynamefromheader_64 () is deprecated since iOS 16, an
+          # error for the same reason as asl_log (). It still exists, and
+          # its replacement returns addresses with the slide applied where
+          # this one does not, so keep it and silence the warning for this
+          # call.
+          edit(
+              "mono/metadata/w32process-unix-osx.c",
+              "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n",
+              "#pragma clang diagnostic push\n"
+              '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+              "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n"
+              "#pragma clang diagnostic pop\n",
+          )
+
+          # An SDK header includes <stdbool.h>, which makes bool a macro, so
+          # the two icall signatures spelled with it get _Bool pasted into
+          # their names. Spell them with boolean, which the signature types
+          # already accept.
+          for sig in ("3, (bool, ptr, ptrref)", "4, (bool, ptr, int32, ptrref)"):
+              edit(
+                  "mono/metadata/icall-signatures.h",
+                  f"ICALL_SIG ({sig})",
+                  f"ICALL_SIG ({sig.replace('bool', 'boolean')})",
+              )
+          for name in ("mono_icall_sig_bool_ptr_int32_ptrref", "mono_icall_sig_bool_ptr_ptrref"):
+              edit(
+                  "mono/mini/aot-compiler.c",
+                  f"&{name},",
+                  f"&{name.replace('_bool_', '_boolean_')},",
+              )
+
+          # Storing a pointer into an integer and assigning a function to
+          # a pointer of another type were warnings and are errors now.
+          edit(
+              "mono/utils/mono-sigcontext.h",
+              "\tUCONTEXT_REG_PC (ctx) = (val); \\\n",
+              "\tUCONTEXT_REG_PC (ctx) = (host_mgreg_t)(val); \\\n",
+          )
+          edit(
+              "mono/mini/debugger-agent.c",
+              "\tcallbacks->buffer_add_byte = buffer_add_byte;\n"
+              "\tcallbacks->buffer_add_int = buffer_add_int;\n"
+              "\tcallbacks->buffer_add_id = buffer_add_id;\n"
+              "\tcallbacks->buffer_add_string = buffer_add_string;\n",
+              "\tcallbacks->buffer_add_byte = (void (*)(void *, guint8))buffer_add_byte;\n"
+              "\tcallbacks->buffer_add_int = (void (*)(void *, guint32))buffer_add_int;\n"
+              "\tcallbacks->buffer_add_id = (void (*)(void *, int))buffer_add_id;\n"
+              "\tcallbacks->buffer_add_string = (void (*)(void *, const char *))buffer_add_string;\n",
+          )
+
+          # ---------------------------------------------------------------
+          # JIT code memory (see mono/utils/mono-ios-jit.h)
+          # ---------------------------------------------------------------
+
+          # Every instruction is emitted through arm_emit (). The header is
+          # included by all of mono/mini, which also brings in the memcpy () and
+          # memset () wrappers.
+          codegen = Path("mono/arch/arm64/arm64-codegen.h")
+          edit(
+              codegen,
+              "#define arm_emit(p, ins) do { *(guint32*)(p) = (ins); (p) += 4; } while (0)",
+              "#include <mono/utils/mono-ios-jit.h>\n"
+              "\n"
+              "#define arm_emit(p, ins) do { *(guint32*)MONO_JIT_W (p) = (ins); (p) += 4; } while (0)",
+          )
+
+          # The helpers of that header which patch an instruction in place.
+          store = r"\*\((guint32|guint64|gpointer)\s*\*\)\s*\(?\s*(\w+)\s*\)?\s*=(?!=)"
+          text, count = re.subn(store, r"*(\1*)MONO_JIT_W (\2) =", codegen.read_text())
+          unpatched = [
+              line
+              for line in text.splitlines()
+              if re.search(r"\*\s*\([^()]*\*\s*\)\s*\(?\s*\w+\s*\)?\s*(\[[^\]]*\]\s*)?=(?!=)", line)
+          ]
+          if count < 1 or unpatched:
+              raise RuntimeError(
+                  f"{codegen}: {count} in-place stores patched, left: {unpatched!r}"
+              )
+          codegen.write_text(text)
+
+          # The remaining places which store data into code memory.
+          edit(
+              "mono/mini/mini-arm64.c",
+              "\t*(guint64*)code = (guint64)target;\n",
+              "\t*(guint64*)MONO_JIT_W (code) = (guint64)target;\n",
+          )
+          edit(
+              "mono/mini/tramp-arm64.c",
+              "\t*(gpointer*)patch_addr = addr;\n",
+              "\t*(gpointer*)MONO_JIT_W (patch_addr) = addr;\n",
+          )
+          edit(
+              "mono/mini/tramp-arm64.c",
+              "\t\t*(guint64*)code = (guint64)(gsize)tramp;\n",
+              "\t\t*(guint64*)MONO_JIT_W (code) = (guint64)(gsize)tramp;\n",
+          )
+          edit(
+              "mono/mini/mini-runtime.c",
+              "\t\t\tjump_table [i] = code + ",
+              "\t\t\t((gpointer *)MONO_JIT_W (jump_table)) [i] = code + ",
+          )
+          # These tables are only read back, so use the writable address for good.
+          for reserve in (
+              "mono_code_manager_reserve (cfg->dynamic_info->code_mp, ",
+              "mono_mem_manager_code_reserve (cfg->mem_manager, ",
+          ):
+              call = reserve + "sizeof (gpointer) * patch_info->data.table->table_size)"
+              edit(
+                  "mono/mini/mini.c",
+                  f"table = (void **){call};",
+                  f"table = (void **)MONO_JIT_W ({call});",
+              )
+
+          # The code manager takes its memory from the region instead of mmap ()
+          # and dlmalloc.
+          codeman = "mono/utils/mono-codeman.c"
+          edit(
+              codeman,
+              "#if defined(TARGET_OSX)\n"
+              "/* So we can use the declaration of pthread_jit_write_protect_np () */\n",
+              "#if defined(TARGET_OSX) || defined(TARGET_IOS)\n"
+              "/* So we can use the declaration of pthread_jit_write_protect_np () and, on iOS, of sysctl () */\n",
+          )
+          edit(
+              codeman,
+              "#include <mono/utils/mono-tls.h>\n",
+              "#include <mono/utils/mono-tls.h>\n"
+              "\n"
+              "#define MONO_IOS_JIT_IMPLEMENTATION\n"
+              "#include <mono/utils/mono-ios-jit.h>\n",
+          )
+          edit(
+              codeman,
+              "static void*\ncodechunk_valloc (void *preferred, guint32 size)\n{\n",
+              "#ifdef MONO_IOS_JIT_POOL\n"
+              "\n"
+              "static void*\n"
+              "codechunk_valloc (void *preferred, guint32 size)\n"
+              "{\n"
+              "\treturn ios_jit_alloc (size);\n"
+              "}\n"
+              "\n"
+              "static void\n"
+              "codechunk_vfree (void *ptr, guint32 size)\n"
+              "{\n"
+              "\tios_jit_free (ptr, size);\n"
+              "}\n"
+              "\n"
+              "static void\n"
+              "codechunk_cleanup (void)\n"
+              "{\n"
+              "}\n"
+              "\n"
+              "#else\n"
+              "\n"
+              "static void*\ncodechunk_valloc (void *preferred, guint32 size)\n{\n",
+          )
+          edit(
+              codeman,
+              "\tg_hash_table_destroy (valloc_freelists);\n}\n",
+              "\tg_hash_table_destroy (valloc_freelists);\n}\n"
+              "\n"
+              "#endif /* MONO_IOS_JIT_POOL */\n",
+          )
+          edit(
+              codeman,
+              "\tgpointer res = dlmemalign (MIN_ALIGN, n);\n",
+              "#ifdef MONO_IOS_JIT_POOL\n"
+              "\tgpointer res = ios_jit_malloc (n);\n"
+              "#else\n"
+              "\tgpointer res = dlmemalign (MIN_ALIGN, n);\n"
+              "#endif\n",
+          )
+          edit(
+              codeman,
+              "\tdlfree (p);\n",
+              "#ifdef MONO_IOS_JIT_POOL\n"
+              "\tios_jit_mfree (p);\n"
+              "#else\n"
+              "\tdlfree (p);\n"
+              "#endif\n",
+          )
+          PY
+
+          echo "===== ios.mk device configuration ====="
+          grep -nE 'enable-minimal|icall-tables|lazy-gc|enable-boehm|disable-boehm' \
+            sdks/builds/ios.mk
+
+          echo "===== SGen liveness configuration ====="
+          grep -n -A2 -B1 \
+            'libmonoruntimesgen_la_SOURCES' \
+            mono/metadata/Makefile.am
+
+          echo "===== JIT code memory changes ====="
+          git --no-pager diff --stat
+          git --no-pager diff -- mono/arch/arm64/arm64-codegen.h
+
+      - name: Build Unity Mono ARM64 iOS
+        shell: bash
+        run: |
+          set -o pipefail
+
+          # sdks/builds/Makefile refuses to start below 1024 file
+          # descriptors; the macOS default is 256.
+          ulimit -n 4096
+
+          # IOS_VERSION is left unset on purpose: ios.mk then builds
+          # against the unversioned iPhoneOS.sdk of the selected Xcode.
+          #
+          # The AOT compiler is built along with the JIT and must not
+          # call system (), which the iOS SDK forbids. The simulator
+          # targets of ios.mk, which are JIT runtimes, set the same.
+          #
+          # -k keeps going after an error, so that one run reports every
+          # file that fails to compile instead of only the first one.
+          make -C sdks/builds \
+            ENABLE_IOS=1 \
+            CONFIGURATION=release \
+            XCODE_DIR="$(xcode-select -p)" \
+            IOS_VERSION_MIN="$IOS_VERSION_MIN" \
+            ios-target64_AC_VARS="ac_cv_func_system=no" \
+            -j"$(sysctl -n hw.logicalcpu)" \
+            -k \
+            package-ios-target64 \
+            2>&1 | tee "$GITHUB_WORKSPACE/mono-build.log"
+
+      - name: Show actual build errors
+        if: always()
+        shell: bash
+        run: |
+          echo "===== compiler/build errors ====="
+
+          grep -nEi \
+            'error: |error [A-Z]+[0-9]+|fatal error|Undefined symbols|command not found|No such file|failed' \
+            mono-build.log \
+            || true
+
+          # The same errors with the lines that follow them, then the
+          # targets make gave up on, in a file small enough to pass
+          # around.
+          {
+            grep -nE -A8 \
+              ' error: |Undefined symbols for architecture|duplicate symbol|^ld: [^w]' \
+              mono-build.log \
+              || true
+            echo
+            echo "===== targets make gave up on ====="
+            grep -nF '***' mono-build.log || true
+          } > mono-build-errors.txt
+
+          echo
+          echo "===== last 300 lines ====="
+          tail -n 300 mono-build.log
+
+      - name: Check and show generated artifacts
+        if: success()
+        shell: bash
+        run: |
+          CONFIG_H=sdks/builds/ios-target64-release/config.h
+          OUT=sdks/out/ios-target64-release
+          DYLIB="$OUT/lib/libmonosgen-2.0.dylib"
+
+          echo "===== runtime configuration ====="
+          grep -nE '#define (DISABLED_FEATURES|TARGET_IOS|TARGET_ARM64) ' \
+            "$CONFIG_H" || true
+
+          if grep -nE '#define (DISABLE_JIT|DISABLE_ICALL_TABLES|LAZY_GC_THREAD_CREATION) ' "$CONFIG_H"; then
+            echo "::error::The runtime was not configured as a JIT runtime"
+            exit 1
+          fi
+
+          # libtool records the build prefix as install name. Make the
+          # dylib loadable from an app bundle.
+          install_name_tool -id @rpath/libmonosgen-2.0.dylib "$DYLIB"
+
+          echo "===== ARM64 artifacts ====="
+          find "$OUT" -type f \
+            \( -name '*.dylib' -o -name '*.a' \) \
+            -print \
+            | sort
+
+          echo "===== libmonosgen-2.0.dylib ====="
+          lipo -info "$DYLIB"
+          vtool -show-build "$DYLIB"
+          otool -L "$DYLIB"
+
+          echo "===== Unity liveness and JIT region symbols ====="
+          nm -gU "$DYLIB" > mono-symbols.txt
+          grep '_mono_unity_liveness_' mono-symbols.txt
+          grep '_mono_ios_jit_' mono-symbols.txt
+
+          # libtool links with -undefined dynamic_lookup, so a symbol
+          # that no library provides does not fail the link: it fails
+          # when the dylib is loaded on the device instead.
+          echo "===== symbols no linked library provides ====="
+          nm -m -u "$DYLIB" \
+            | grep 'dynamically looked up' \
+            > mono-unresolved-symbols.txt \
+            || true
+          if [ -s mono-unresolved-symbols.txt ]; then
+            cat mono-unresolved-symbols.txt
+            echo "::warning::libmonosgen-2.0.dylib has unresolved symbols, listed in mono-unresolved-symbols.txt"
+          else
+            echo "none"
+          fi
+
+      - name: Upload ARM64 Mono build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-2022.3-ios-arm64-sgen
+          path: sdks/out/ios-target64-release/**
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-mono-build-log
+          path: |
+            mono-build.log
+            mono-build-errors.txt
+            mono-unresolved-symbols.txt
+            sdks/builds/ios-target64-release/config.log
+          if-no-files-found: error
+          compression-level: 6
