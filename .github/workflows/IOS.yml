@@ -449,6 +449,10 @@ jobs:
               "$(unity_gc_dependent_sources) $(sgen_sources)",
           )
 
+          # ---------------------------------------------------------------
+          # Code the current SDK and compiler reject
+          # ---------------------------------------------------------------
+
           # asl_log () is deprecated since iOS 10, which is an error in the
           # runtime now that the deployment target is past that. Log through
           # os_log () instead, as this file already does on watchOS and
@@ -473,6 +477,56 @@ jobs:
               "\tsuper.super_class = nsobject;\n"
               "#endif\n",
               "\tstruct objc_super super = { self, nsobject };\n",
+          )
+
+          # getsectbynamefromheader_64 () is deprecated since iOS 16, an
+          # error for the same reason as asl_log (). It still exists, and
+          # its replacement returns addresses with the slide applied where
+          # this one does not, so keep it and silence the warning for this
+          # call.
+          edit(
+              "mono/metadata/w32process-unix-osx.c",
+              "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n",
+              "#pragma clang diagnostic push\n"
+              '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+              "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n"
+              "#pragma clang diagnostic pop\n",
+          )
+
+          # An SDK header includes <stdbool.h>, which makes bool a macro, so
+          # the two icall signatures spelled with it get _Bool pasted into
+          # their names. Spell them with boolean, which the signature types
+          # already accept.
+          for sig in ("3, (bool, ptr, ptrref)", "4, (bool, ptr, int32, ptrref)"):
+              edit(
+                  "mono/metadata/icall-signatures.h",
+                  f"ICALL_SIG ({sig})",
+                  f"ICALL_SIG ({sig.replace('bool', 'boolean')})",
+              )
+          for name in ("mono_icall_sig_bool_ptr_int32_ptrref", "mono_icall_sig_bool_ptr_ptrref"):
+              edit(
+                  "mono/mini/aot-compiler.c",
+                  f"&{name},",
+                  f"&{name.replace('_bool_', '_boolean_')},",
+              )
+
+          # Storing a pointer into an integer and assigning a function to
+          # a pointer of another type were warnings and are errors now.
+          edit(
+              "mono/utils/mono-sigcontext.h",
+              "\tUCONTEXT_REG_PC (ctx) = (val); \\\n",
+              "\tUCONTEXT_REG_PC (ctx) = (host_mgreg_t)(val); \\\n",
+          )
+          edit(
+              "mono/mini/debugger-agent.c",
+              "\tcallbacks->buffer_add_byte = buffer_add_byte;\n"
+              "\tcallbacks->buffer_add_int = buffer_add_int;\n"
+              "\tcallbacks->buffer_add_id = buffer_add_id;\n"
+              "\tcallbacks->buffer_add_string = buffer_add_string;\n",
+              "\tcallbacks->buffer_add_byte = (void (*)(void *, guint8))buffer_add_byte;\n"
+              "\tcallbacks->buffer_add_int = (void (*)(void *, guint32))buffer_add_int;\n"
+              "\tcallbacks->buffer_add_id = (void (*)(void *, int))buffer_add_id;\n"
+              "\tcallbacks->buffer_add_string = (void (*)(void *, const char *))buffer_add_string;\n",
           )
 
           # ---------------------------------------------------------------
@@ -662,13 +716,18 @@ jobs:
             mono-build.log \
             || true
 
-          # The same errors with the lines that follow them, in a file
-          # small enough to pass around.
-          grep -nE -A8 \
-            ' error: |Undefined symbols for architecture|^ld: ' \
-            mono-build.log \
-            > mono-build-errors.txt \
-            || true
+          # The same errors with the lines that follow them, then the
+          # targets make gave up on, in a file small enough to pass
+          # around.
+          {
+            grep -nE -A8 \
+              ' error: |Undefined symbols for architecture|duplicate symbol|^ld: [^w]' \
+              mono-build.log \
+              || true
+            echo
+            echo "===== targets make gave up on ====="
+            grep -nF '***' mono-build.log || true
+          } > mono-build-errors.txt
 
           echo
           echo "===== last 300 lines ====="
@@ -711,6 +770,21 @@ jobs:
           grep '_mono_unity_liveness_' mono-symbols.txt
           grep '_mono_ios_jit_' mono-symbols.txt
 
+          # libtool links with -undefined dynamic_lookup, so a symbol
+          # that no library provides does not fail the link: it fails
+          # when the dylib is loaded on the device instead.
+          echo "===== symbols no linked library provides ====="
+          nm -m -u "$DYLIB" \
+            | grep 'dynamically looked up' \
+            > mono-unresolved-symbols.txt \
+            || true
+          if [ -s mono-unresolved-symbols.txt ]; then
+            cat mono-unresolved-symbols.txt
+            echo "::warning::libmonosgen-2.0.dylib has unresolved symbols, listed in mono-unresolved-symbols.txt"
+          else
+            echo "none"
+          fi
+
       - name: Upload ARM64 Mono build
         if: success()
         uses: actions/upload-artifact@v4
@@ -728,6 +802,7 @@ jobs:
           path: |
             mono-build.log
             mono-build-errors.txt
+            mono-unresolved-symbols.txt
             sdks/builds/ios-target64-release/config.log
           if-no-files-found: error
           compression-level: 6
