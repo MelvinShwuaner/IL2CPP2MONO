@@ -5,6 +5,24 @@ import subprocess
 import sys
 
 
+def edit(path, old, new):
+    path = Path(path)
+    text = path.read_text()
+edit(
+    "mono/utils/mono-log-darwin.c",
+    "|| defined(HOST_MACCAT)\n",
+    "|| defined(HOST_MACCAT) || (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 100000)\n",
+)
+edit("mono/utils/mono-log-darwin.c", "%s", "%{public}s")
+edit(
+    "mono/metadata/w32process-unix-osx.c",
+    "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n",
+    "#pragma clang diagnostic push\n"
+    '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+    "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n"
+    "#pragma clang diagnostic pop\n",
+)
+edit("mono/metadata/icall-def.h", """ICALL(REMSER_0, "IsTransparentProxy", ves_icall_IsTransparentProxy)""", "") #cheap but works
 BASE_REVISION = "b8eb56fab45dd52845fabba7b7ddc9a80b2b0498"
 BASE_BRANCH = "unity-2022.3-mbe"
 ASSET_NAMES = ("mono-ios-jit.cpp", "mono-ios-jit.h")
