@@ -6,6 +6,7 @@
 
 #include "mono-ios-jit.h"
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
@@ -26,6 +27,7 @@
 
 typedef struct _MonoIosJitRange MonoIosJitRange;
 typedef struct _MonoIosJitArena MonoIosJitArena;
+typedef int (*MonoIosJitWriteFunction) (pthread_jit_write_callback_t, void *);
 
 struct _MonoIosJitRange {
 	size_t offset;
@@ -36,6 +38,7 @@ struct _MonoIosJitRange {
 struct _MonoIosJitArena {
 	void *execute_address;
 	void *write_address;
+	MonoIosJitWriteFunction write_function;
 	size_t capacity;
 	MonoIosJitRange *free_ranges;
 	MonoIosJitRange *allocations;
@@ -116,6 +119,11 @@ mono_ios_jit_prepare (size_t capacity)
 	arena = (MonoIosJitArena *)calloc (1, sizeof (*arena));
 	if (!arena)
 		return ENOMEM;
+	arena->write_function = (MonoIosJitWriteFunction)dlsym (RTLD_DEFAULT, "pthread_jit_write_with_callback_np");
+	if (!arena->write_function) {
+		free (arena);
+		return ENOSYS;
+	}
 	arena->free_ranges = (MonoIosJitRange *)calloc (1, sizeof (*arena->free_ranges));
 	if (!arena->free_ranges) {
 		free (arena);
@@ -427,7 +435,7 @@ write_arena_memory (MonoIosJitArena *arena, void *address, const void *source, s
 {
 	MonoIosJitWrite write = { arena, address, source, size, fill_value, is_fill };
 
-	pthread_jit_write_with_callback_np (write_callback, &write);
+	arena->write_function (write_callback, &write);
 }
 
 static int

@@ -5,26 +5,6 @@ import subprocess
 import sys
 
 
-def edit(path, old, new):
-    path = Path(path)
-    text = path.read_text()
-    path.write_text(text.replace(old, new))
-edit(
-    "mono/utils/mono-log-darwin.c",
-    "|| defined(HOST_MACCAT)\n",
-    "|| defined(HOST_MACCAT) || (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 100000)\n",
-)
-edit("mono/utils/mono-log-darwin.c", "%s", "%{public}s")
-edit(
-    "mono/metadata/w32process-unix-osx.c",
-    "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n",
-    "#pragma clang diagnostic push\n"
-    '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
-    "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n"
-    "#pragma clang diagnostic pop\n",
-)
-edit("mono/metadata/icall-def.h", """ICALL_TYPE(REMSER, "System.Runtime.Remoting.RemotingServices", REMSER_0)
-ICALL(REMSER_0, "IsTransparentProxy", ves_icall_IsTransparentProxy)""", "") #cheap but works
 BASE_REVISION = "b8eb56fab45dd52845fabba7b7ddc9a80b2b0498"
 BASE_BRANCH = "unity-2022.3-mbe"
 ASSET_NAMES = ("mono-ios-jit.cpp", "mono-ios-jit.h")
@@ -50,6 +30,9 @@ PATCHED_PATHS = (
     'mono/utils/mono-sigcontext.h',
     'mono/utils/mono-threads-mach-helper.c',
     'sdks/builds/ios.mk',
+    'mono/utils/mono-log-darwin.c',
+    'mono/metadata/w32process-unix-osx.c',
+    'mono/metadata/icall-decl.h',
     'mono/Scripts/mono-ios-jit.cpp',
     'mono/Scripts/mono-ios-jit.h',
 )
@@ -731,6 +714,59 @@ PATCH = (
     ' \n'
     ' .stamp-ios-$(1)-toolchain:\n'
     ' \ttouch $$@\n'
+    'diff --git a/mono/utils/mono-log-darwin.c b/mono/utils/mono-log-darwin.c\n'
+    '--- a/mono/utils/mono-log-darwin.c\n'
+    '+++ b/mono/utils/mono-log-darwin.c\n'
+    '@@ -94,10 +94,17 @@\n'
+    ' void\n'
+    ' mono_log_write_asl (const char *log_domain, GLogLevelFlags level, mono_bool hdr, const char *message)\n'
+    ' {\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#pragma clang diagnostic push\n'
+    '+#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+    '+#endif\n'
+    ' \tasl_log (NULL, NULL, to_asl_priority (level), "%s%s%s\\n",\n'
+    ' \t\tlog_domain != NULL ? log_domain : "",\n'
+    ' \t\tlog_domain != NULL ? ": " : "",\n'
+    ' \t\tmessage);\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#pragma clang diagnostic pop\n'
+    '+#endif\n'
+    ' \n'
+    ' \tif (level & G_LOG_LEVEL_ERROR)\n'
+    ' \t\tg_assert_abort ();\n'
+    'diff --git a/mono/metadata/w32process-unix-osx.c b/mono/metadata/w32process-unix-osx.c\n'
+    '--- a/mono/metadata/w32process-unix-osx.c\n'
+    '+++ b/mono/metadata/w32process-unix-osx.c\n'
+    '@@ -185,7 +185,14 @@\n'
+    ' {\n'
+    ' \t#if SIZEOF_VOID_P == 8\n'
+    ' \tconst struct mach_header_64 *hdr64 = (const struct mach_header_64 *)hdr32;\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#pragma clang diagnostic push\n'
+    '+#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+    '+#endif\n'
+    ' \tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#pragma clang diagnostic pop\n'
+    '+#endif\n'
+    ' \t#else\n'
+    ' \tconst struct section *sec = getsectbynamefromheader (hdr32, SEG_DATA, SECT_DATA);\n'
+    ' \t#endif\n'
+    'diff --git a/mono/metadata/icall-decl.h b/mono/metadata/icall-decl.h\n'
+    '--- a/mono/metadata/icall-decl.h\n'
+    '+++ b/mono/metadata/icall-decl.h\n'
+    '@@ -71,6 +71,10 @@\n'
+    ' #undef HANDLES_REUSE_WRAPPER\n'
+    ' #undef NOHANDLES\n'
+    ' #undef MONO_HANDLE_REGISTER_ICALL\n'
+    '+\n'
+    '+#ifdef DISABLE_REMOTING\n'
+    '+ICALL_EXPORT MonoBoolean ves_icall_IsTransparentProxy (MonoObject *proxy);\n'
+    '+#endif\n'
+    ' \n'
+    ' // This is sorted.\n'
+    ' // grep ICALL_EXPORT | sort | uniq\n'
 )
 
 
