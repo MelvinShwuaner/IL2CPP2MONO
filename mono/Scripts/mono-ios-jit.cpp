@@ -11,6 +11,7 @@
 #include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
 #include <mach/vm_region.h>
+#include <os/log.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -65,10 +66,11 @@ static void write_arena_memory (MonoIosJitArena *arena, void *address, const voi
 static int round_size (size_t size, size_t alignment, size_t *rounded_size);
 static int startup_capacity (size_t *capacity);
 static int debugger_status (int *is_attached);
-static int verify_protection (void *address, size_t size, vm_prot_t protection);
+static int verify_protection (void *address, size_t size, vm_prot_t protection, const char *stage);
 static int verify_arena (MonoIosJitArena *arena, size_t page_size);
 static int execute_probe (void *address);
 static int mach_error_number (kern_return_t result);
+static int report_prepare_error (const char *stage, int error, kern_return_t native_error = KERN_SUCCESS, const char *detail = "");
 static void release_arena (MonoIosJitArena *arena);
 static void release_ranges (MonoIosJitRange *range);
 
@@ -110,24 +112,25 @@ mono_ios_jit_prepare (size_t capacity)
 			return 0;
 		error = startup_capacity (&capacity);
 		if (error)
-			return error;
+			return report_prepare_error ("startup capacity", error, KERN_SUCCESS, "MONO_IOS_JIT_POOL_MB must be a positive whole number that fits in size_t");
 	}
 
 	if (page_size <= 0 || !round_size (capacity, (size_t)page_size, &capacity))
-		return EINVAL;
+		return report_prepare_error ("page-aligned capacity", EINVAL);
 
 	arena = (MonoIosJitArena *)calloc (1, sizeof (*arena));
 	if (!arena)
-		return ENOMEM;
+		return report_prepare_error ("arena allocation", ENOMEM);
 	arena->write_function = (MonoIosJitWriteFunction)dlsym (RTLD_DEFAULT, "pthread_jit_write_with_callback_np");
 	if (!arena->write_function) {
+		report_prepare_error ("pthread_jit_write_with_callback_np", ENOSYS, KERN_SUCCESS, dlerror ());
 		free (arena);
 		return ENOSYS;
 	}
 	arena->free_ranges = (MonoIosJitRange *)calloc (1, sizeof (*arena->free_ranges));
 	if (!arena->free_ranges) {
 		free (arena);
-		return ENOMEM;
+		return report_prepare_error ("free-range allocation", ENOMEM);
 	}
 	arena->capacity = capacity;
 	arena->free_ranges->size = capacity;
@@ -135,7 +138,7 @@ mono_ios_jit_prepare (size_t capacity)
 	error = pthread_mutex_lock (&arena_mutex);
 	if (error) {
 		release_arena (arena);
-		return error;
+		return report_prepare_error ("arena mutex", error);
 	}
 	if (use_startup_pool && __atomic_load_n (&arena_head, __ATOMIC_ACQUIRE)) {
 		release_arena (arena);
@@ -143,22 +146,24 @@ mono_ios_jit_prepare (size_t capacity)
 		return 0;
 	}
 	error = debugger_status (&is_attached);
-	if (error)
+	if (error) {
+		report_prepare_error ("debugger attach check", error, KERN_SUCCESS, "sysctl process status");
 		goto fail;
+	}
 	if (!is_attached) {
-		error = EPERM;
+		error = report_prepare_error ("debugger attach check", EPERM, KERN_SUCCESS, "P_TRACED is unset; attach StikDebug's universal script before Mono initialization");
 		goto fail;
 	}
 
 	arena->execute_address = prepare_region (NULL, capacity);
 	if (!arena->execute_address) {
-		error = ENOMEM;
+		error = report_prepare_error ("StikDebug prepare_region", ENOMEM, KERN_SUCCESS, "debugger protocol returned NULL");
 		goto detach;
 	}
 	if ((uintptr_t)arena->execute_address % (size_t)page_size != 0 ||
 	    (uintptr_t)arena->execute_address > UINTPTR_MAX - capacity) {
 		arena->execute_address = NULL;
-		error = EFAULT;
+		error = report_prepare_error ("StikDebug prepare_region", EFAULT, KERN_SUCCESS, "unaligned or overflowing executable region");
 		goto detach;
 	}
 
@@ -167,18 +172,18 @@ mono_ios_jit_prepare (size_t capacity)
 	                   (vm_address_t)arena->execute_address, FALSE,
 	                   &current_protection, &maximum_protection, VM_INHERIT_NONE);
 	if (result != KERN_SUCCESS) {
-		error = mach_error_number (result);
+		error = report_prepare_error ("vm_remap", mach_error_number (result), result);
 		goto detach;
 	}
 	arena->write_address = (void *)write_address;
 	if (!write_address || write_address % (size_t)page_size != 0 || write_address > UINTPTR_MAX - capacity) {
-		error = EFAULT;
+		error = report_prepare_error ("vm_remap address", EFAULT);
 		goto detach;
 	}
 	result = vm_protect (mach_task_self (), write_address, capacity, FALSE,
 	                     VM_PROT_READ | VM_PROT_WRITE);
 	if (result != KERN_SUCCESS) {
-		error = mach_error_number (result);
+		error = report_prepare_error ("vm_protect", mach_error_number (result), result);
 		goto detach;
 	}
 	error = 0;
@@ -187,8 +192,10 @@ detach:
 	detach_debugger ();
 	if (!error) {
 		error = debugger_status (&is_attached);
-		if (!error && is_attached)
-			error = EBUSY;
+		if (error)
+			report_prepare_error ("debugger detach check", error, KERN_SUCCESS, "sysctl process status");
+		else if (is_attached)
+			error = report_prepare_error ("debugger detach check", EBUSY, KERN_SUCCESS, "P_TRACED remains set after debugger detach");
 		if (!error)
 			error = verify_arena (arena, (size_t)page_size);
 	}
@@ -485,13 +492,13 @@ debugger_status (int *is_attached)
 }
 
 static int
-verify_protection (void *address, size_t size, vm_prot_t protection)
+verify_protection (void *address, size_t size, vm_prot_t protection, const char *stage)
 {
 	uintptr_t cursor = (uintptr_t)address;
 	uintptr_t end;
 
 	if (size > UINTPTR_MAX - cursor)
-		return EFAULT;
+		return report_prepare_error (stage, EFAULT, KERN_SUCCESS, "address range overflow");
 	end = cursor + size;
 	while (cursor < end) {
 		vm_address_t region_address = cursor;
@@ -507,14 +514,17 @@ verify_protection (void *address, size_t size, vm_prot_t protection)
 		if (object_name != MACH_PORT_NULL)
 			mach_port_deallocate (mach_task_self (), object_name);
 		if (result != KERN_SUCCESS)
-			return mach_error_number (result);
+			return report_prepare_error (stage, mach_error_number (result), result, "vm_region_64");
 		if (count != VM_REGION_BASIC_INFO_COUNT_64)
-			return EIO;
+			return report_prepare_error (stage, EIO, KERN_SUCCESS, "unexpected region info size");
 		if (!region_size || region_address > cursor || region_size > UINTPTR_MAX - region_address ||
 		    cursor - region_address >= region_size)
-			return EFAULT;
-		if ((information.protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) != protection)
-			return EACCES;
+			return report_prepare_error (stage, EFAULT, KERN_SUCCESS, "region gap or overflow");
+		if ((information.protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) != protection) {
+			os_log_error (OS_LOG_DEFAULT, "Mono iOS JIT protection mismatch: stage=%{public}s offset=%zu expected=%d actual=%d",
+			              stage, cursor - (uintptr_t)address, protection, information.protection);
+			return report_prepare_error (stage, EACCES, KERN_SUCCESS, "unexpected R/W/X permissions");
+		}
 		cursor = region_address + region_size;
 	}
 	return 0;
@@ -523,11 +533,11 @@ verify_protection (void *address, size_t size, vm_prot_t protection)
 static int
 verify_arena (MonoIosJitArena *arena, size_t page_size)
 {
-	int error = verify_protection (arena->execute_address, arena->capacity, VM_PROT_READ | VM_PROT_EXECUTE);
+	int error = verify_protection (arena->execute_address, arena->capacity, VM_PROT_READ | VM_PROT_EXECUTE, "RX protection verification");
 
 	if (error)
 		return error;
-	error = verify_protection (arena->write_address, arena->capacity, VM_PROT_READ | VM_PROT_WRITE);
+	error = verify_protection (arena->write_address, arena->capacity, VM_PROT_READ | VM_PROT_WRITE, "RW protection verification");
 	if (error)
 		return error;
 	for (size_t offset = 0; offset < arena->capacity; offset += page_size) {
@@ -541,9 +551,16 @@ verify_arena (MonoIosJitArena *arena, size_t page_size)
 			                    patch ? sizeof (instructions [0]) : sizeof (instructions), 0, 0);
 			sys_dcache_flush (write_address, sizeof (instructions));
 			sys_icache_invalidate (execute_address, sizeof (instructions));
-			if (memcmp (execute_address, instructions, sizeof (instructions)) != 0 ||
-			    execute_probe (execute_address) != (int)value)
-				return EIO;
+			if (memcmp (execute_address, instructions, sizeof (instructions)) != 0) {
+				os_log_error (OS_LOG_DEFAULT, "Mono iOS JIT alias readback mismatch: offset=%zu pass=%d", offset, patch);
+				return report_prepare_error ("alias readback", EIO);
+			}
+			int actual = execute_probe (execute_address);
+			if (actual != (int)value) {
+				os_log_error (OS_LOG_DEFAULT, "Mono iOS JIT execution probe mismatch: offset=%zu pass=%d expected=%u actual=%d",
+				              offset, patch, value, actual);
+				return report_prepare_error ("execution probe", EIO);
+			}
 			++value;
 			instructions [0] = MONO_IOS_JIT_MOVZ_W0 | (value << 5);
 		}
@@ -573,6 +590,16 @@ mach_error_number (kern_return_t result)
 	default:
 		return EIO;
 	}
+}
+
+static int
+report_prepare_error (const char *stage, int error, kern_return_t native_error, const char *detail)
+{
+	int saved_errno = errno;
+	os_log_error (OS_LOG_DEFAULT, "Mono iOS JIT preparation failed: stage=%{public}s errno=%d (%{public}s) mach=%d detail=%{public}s",
+	              stage, error, strerror (error), native_error, detail ? detail : "");
+	errno = saved_errno;
+	return error;
 }
 
 static void

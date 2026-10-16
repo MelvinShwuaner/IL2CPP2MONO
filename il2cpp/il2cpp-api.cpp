@@ -60,8 +60,8 @@ typedef size_t il2cpp_array_size_t;
 #include <cstring>
 #include <unistd.h>
 //used for debugging when necessary
-#define LOGCALL() //log_format(LOG_DEBUG, "IL2CPPAPI", "api call called: {}", __FUNCTION__)
-#define LOGCALL2() log_format(LOG_DEBUG, "IL2CPPAPI", "missing api call called: {}", __FUNCTION__)
+#define LOGCALL() //log_format(LOG_DEBUG, "IL2CPPAPI", "api func called: {}", __FUNCTION__)
+#define LOGCALL2() log_format(LOG_DEBUG, "IL2CPPAPI", "missing api func called: {}", __FUNCTION__)
 
 extern "C" {
 // il2cpp2mono api
@@ -1742,7 +1742,7 @@ void il2cpp_type_get_name_chunked(const Il2CppType * type, void(*chunkReportFunc
 }
 
 int il2cpp_class_get_userdata_offset()
-{ LOGCALL2();
+{ LOGCALL();
     return offsetof(struct Il2CppClass, unity_user_data);
 }
 
