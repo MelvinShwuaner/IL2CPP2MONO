@@ -8,6 +8,7 @@ import sys
 def edit(path, old, new):
     path = Path(path)
     text = path.read_text()
+    path.write_text(text.replace(old, new))
 edit(
     "mono/utils/mono-log-darwin.c",
     "|| defined(HOST_MACCAT)\n",
