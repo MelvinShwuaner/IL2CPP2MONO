@@ -1,5 +1,6 @@
 import argparse
 from difflib import unified_diff
+import hashlib
 from pathlib import Path
 import subprocess
 import sys
@@ -40,7 +41,7 @@ PATCH = (
     'diff --git a/configure.ac b/configure.ac\n'
     '--- a/configure.ac\n'
     '+++ b/configure.ac\n'
-    '@@ -5083,6 +5083,56 @@\n'
+    '@@ -5083,6 +5083,48 @@\n'
     ' \n'
     ' AM_CONDITIONAL(TARGET_OSX, test x$target_osx = xyes)\n'
     ' \n'
@@ -76,14 +77,6 @@ PATCH = (
     '+#endif\n'
     '+int main (void) { return 0; }\n'
     '+\t])], [], [AC_MSG_ERROR([--enable-ios-jit requires the iPhoneOS SDK, iOS 17.4 or newer, and JIT enabled])])\n'
-    '+\tAC_MSG_CHECKING([for iOS JIT write callbacks])\n'
-    '+\tAC_LINK_IFELSE([AC_LANG_SOURCE([\n'
-    '+#define _DARWIN_C_SOURCE\n'
-    '+#include <pthread.h>\n'
-    '+static int mono_ios_jit_write_probe (void *argument) { return argument != 0; }\n'
-    '+PTHREAD_JIT_WRITE_ALLOW_CALLBACKS_NP (mono_ios_jit_write_probe);\n'
-    '+int main (void) { return pthread_jit_write_with_callback_np (mono_ios_jit_write_probe, 0); }\n'
-    '+\t])], [AC_MSG_RESULT([yes])], [AC_MSG_ERROR([the iPhoneOS SDK must provide PTHREAD_JIT_WRITE_ALLOW_CALLBACKS_NP and pthread_jit_write_with_callback_np])])\n'
     '+\tAC_DEFINE(ENABLE_IOS_JIT, 1, [Enable the ARM64 iOS JIT code pool])\n'
     '+\t;;\n'
     '+no)\n'
@@ -97,7 +90,7 @@ PATCH = (
     ' AC_SUBST(SIZEOF_VOID_P,[$ac_cv_sizeof_void_p])\n'
     ' \n'
     ' if test "x$target_byte_order" = "xG_BIG_ENDIAN"; then\n'
-    '@@ -5119,6 +5169,9 @@\n'
+    '@@ -5119,6 +5161,9 @@\n'
     ' dnl\n'
     ' SGEN_DEFINES=\n'
     ' AC_ARG_WITH(sgen,                    [  --with-sgen=yes,no             Extra Generational GC, default=yes],[buildsgen=$with_sgen],[buildsgen=yes])\n'
@@ -107,7 +100,7 @@ PATCH = (
     ' AC_ARG_WITH(sgen-default-concurrent, [  --with-sgen-default-concurrent=yes,no             Use Concurrent GC, default=no],[],[with_sgen_default_concurrent=no])\n'
     ' if test x$buildsgen = xyes; then\n'
     '    AC_DEFINE(HAVE_MOVING_COLLECTOR, 1, [Moving collector])\n'
-    '@@ -5511,6 +5564,9 @@\n'
+    '@@ -5511,6 +5556,9 @@\n'
     ' fi\n'
     ' \n'
     ' AC_ARG_ENABLE(icall-tables,[  --disable-icall-tables Disable the runtime lookup of icalls], icall_tables=$enableval, icall_tables=yes)\n'
@@ -770,6 +763,817 @@ PATCH = (
 )
 
 
+VALIDATION_SOURCES = {
+    "MonoIosValidation.cs": r'''using System;
+using System.Collections.Generic;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+namespace MonoIosValidation
+{
+    public sealed class Node
+    {
+        public int Value;
+        public Node Next;
+    }
+
+    public static class Checks
+    {
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate int NativeCallback(int value);
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        private static extern int InvokeNativeCallback(IntPtr callback, int value);
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        private static extern int ThunkNative(int value);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static T Identity<T>(T value)
+        {
+            return value;
+        }
+
+        public static int Basic(int value)
+        {
+            return value * 3 + 12;
+        }
+
+        public static int Generics()
+        {
+            var values = new List<int> { 7, 11, 19 };
+            string text = new string(new[] { 'j', 'i', 't' });
+            var pair = new KeyValuePair<int, string>(37, text);
+            if (Identity(29) != 29 || !Object.ReferenceEquals(Identity(text), text))
+                throw new InvalidOperationException("Generic identity failed");
+            var copied = Identity(pair);
+            if (copied.Key != 37 || !Object.ReferenceEquals(copied.Value, text))
+                throw new InvalidOperationException("Generic struct failed");
+            return values[0] + values[1] + values[2];
+        }
+
+        public static int DynamicMethods()
+        {
+            var method = new DynamicMethod("AddRuntimeValues", typeof(int), new[] { typeof(int), typeof(int) }, typeof(Checks).Module);
+            ILGenerator il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ret);
+            var add = (Func<int, int, int>)method.CreateDelegate(typeof(Func<int, int, int>));
+            int result = add(17, 25);
+            GC.KeepAlive(add);
+            return result;
+        }
+
+        public static int Delegates()
+        {
+            int total = 0;
+            Action<int> first = value => total += value;
+            Action<int> second = value => total += value * 2;
+            Action<int> combined = first + second;
+            combined(9);
+            combined -= first;
+            combined(5);
+            return total;
+        }
+
+        private static int CallbackTarget(int value)
+        {
+            return value * 3 + 5;
+        }
+
+        public static int ReverseCallback()
+        {
+            NativeCallback callback = CallbackTarget;
+            IntPtr address = Marshal.GetFunctionPointerForDelegate(callback);
+            int result = InvokeNativeCallback(address, 11);
+            GC.KeepAlive(callback);
+            return result;
+        }
+
+        public static int Exceptions()
+        {
+            int result = 0;
+            try
+            {
+                ThrowExpected();
+            }
+            catch (InvalidOperationException error)
+            {
+                if (error.Message != "expected iOS validation exception")
+                    throw;
+                result = 17;
+            }
+            finally
+            {
+                result += 25;
+            }
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThrowExpected()
+        {
+            throw new InvalidOperationException("expected iOS validation exception");
+        }
+
+        public static int ThreadWork(int seed)
+        {
+            Node head = null;
+            for (int i = 0; i < 32; ++i)
+            {
+                head = new Node { Value = seed + i, Next = head };
+                if ((i & 7) == 7)
+                    GC.Collect();
+            }
+            int sum = 0;
+            int count = 0;
+            for (Node current = head; current != null; current = current.Next)
+            {
+                sum += current.Value;
+                ++count;
+            }
+            GC.KeepAlive(head);
+            if (count != 32)
+                throw new InvalidOperationException("Attached-thread root was lost");
+            return sum;
+        }
+
+        public static object[] CreateGraph()
+        {
+            var first = new Node { Value = 11 };
+            var second = new Node { Value = 22 };
+            var third = new Node { Value = 33 };
+            var unrelated = new Node { Value = 44 };
+            first.Next = second;
+            second.Next = third;
+            third.Next = first;
+            return new object[] { first, second, third, unrelated };
+        }
+
+        public static int CheckGraph(object[] values)
+        {
+            var first = (Node)values[0];
+            var second = (Node)values[1];
+            var third = (Node)values[2];
+            var unrelated = (Node)values[3];
+            if (!Object.ReferenceEquals(first.Next, second) || !Object.ReferenceEquals(second.Next, third) ||
+                !Object.ReferenceEquals(third.Next, first) || unrelated.Next != null)
+                throw new InvalidOperationException("Liveness graph references changed");
+            return first.Value + second.Value + third.Value + unrelated.Value;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkTarget(int value) { return value * 3 + 1; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller0(int value) { return ThunkTarget(value); }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller1(int value) { return ThunkTarget(value) + value; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller2(int value) { return ThunkTarget(value) + value * 2; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller3(int value) { return ThunkTarget(value) + value * 3; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller4(int value) { return ThunkTarget(value) + value * 4; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller5(int value) { return ThunkTarget(value) + value * 5; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller6(int value) { return ThunkTarget(value) + value * 6; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int ThunkCaller7(int value) { return ThunkTarget(value) + value * 7; }
+
+        public static int Thunks()
+        {
+            return ThunkCaller0(5) + ThunkCaller1(5) + ThunkCaller2(5) + ThunkCaller3(5) +
+                ThunkCaller4(5) + ThunkCaller5(5) + ThunkCaller6(5) + ThunkCaller7(5);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller0(int value) { return ThunkNative(value); }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller1(int value) { return ThunkNative(value) + value; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller2(int value) { return ThunkNative(value) + value * 2; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller3(int value) { return ThunkNative(value) + value * 3; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller4(int value) { return ThunkNative(value) + value * 4; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller5(int value) { return ThunkNative(value) + value * 5; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller6(int value) { return ThunkNative(value) + value * 6; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int NativeThunkCaller7(int value) { return ThunkNative(value) + value * 7; }
+
+        public static int NativeThunks()
+        {
+            return NativeThunkCaller0(5) + NativeThunkCaller1(5) + NativeThunkCaller2(5) + NativeThunkCaller3(5) +
+                NativeThunkCaller4(5) + NativeThunkCaller5(5) + NativeThunkCaller6(5) + NativeThunkCaller7(5);
+        }
+    }
+}
+''',
+    "mono-ios-validation.h": r'''#ifndef MONO_IOS_VALIDATION_H
+#define MONO_IOS_VALIDATION_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int mono_ios_validation_run (const char *managed_directory, const char *config_directory, const char *validation_assembly_path);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+''',
+    "mono-ios-validation.cpp": r'''#include <TargetConditionals.h>
+#if !TARGET_OS_IOS || TARGET_OS_SIMULATOR || !defined(__aarch64__) || defined(__arm64e__)
+#error Validation requires an ARM64 iOS device target
+#endif
+#include "mono-ios-validation.h"
+
+#include <mono/Scripts/mono-ios-jit.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+extern "C" void mono_arch_flush_icache (uint8_t *code, int size);
+
+static const size_t mono_ios_validation_pool_size = 32u * 1024u * 1024u;
+static const uint32_t mono_ios_validation_movz_w0 = 0x52800000u;
+static const uint32_t mono_ios_validation_ret = 0xd65f03c0u;
+static const uint32_t mono_ios_validation_ldr_x16_literal = 0x58000050u;
+static const uint32_t mono_ios_validation_br_x16 = 0xd61f0200u;
+
+static int
+mono_ios_validation_call (void *address)
+{
+	return ((int (*)(void))address) ();
+}
+
+extern "C" int
+mono_ios_validation_native (void)
+{
+	void *blocks [4] = { NULL, NULL, NULL, NULL };
+	size_t sizes [4] = { 0, 0, 0, 0 };
+	const char *failure = NULL;
+	int prepare_error = 0;
+	bool owns_pool = false;
+	uint8_t *code = NULL;
+	uint8_t *literal = NULL;
+	uint8_t unaligned [sizeof (uint64_t) + 1] __attribute__((aligned(16)));
+	uint32_t instructions [2] = { mono_ios_validation_movz_w0 | (0x1357u << 5), mono_ios_validation_ret };
+	uint32_t changed_instruction = mono_ios_validation_movz_w0 | (0x2468u << 5);
+	uint32_t thunk_instructions [2] = { mono_ios_validation_ldr_x16_literal, mono_ios_validation_br_x16 };
+	uint64_t target = 0;
+
+#define MONO_IOS_VALIDATE(condition, message) do { if (!(condition)) { failure = (message); goto finish; } } while (0)
+
+	errno = 0;
+	sizes [0] = 16;
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (!blocks [0] && errno == EPERM, "native validation requires fresh process before Mono initialization");
+	prepare_error = mono_ios_jit_prepare (mono_ios_validation_pool_size);
+	MONO_IOS_VALIDATE (prepare_error == 0, "32 MiB preparation failed");
+	owns_pool = true;
+	errno = 0;
+	MONO_IOS_VALIDATE (mono_ios_jit_alloc (0) == NULL && errno == EINVAL, "zero-sized allocation was not rejected");
+	errno = 0;
+	MONO_IOS_VALIDATE (mono_ios_jit_alloc (SIZE_MAX) == NULL && errno == EINVAL, "overflowing allocation was not rejected");
+
+	sizes [0] = mono_ios_validation_pool_size;
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (blocks [0] != NULL, "exact-fit pool allocation failed");
+	MONO_IOS_VALIDATE ((uintptr_t)blocks [0] % 16 == 0, "code allocation is not 16-byte aligned");
+	MONO_IOS_VALIDATE (mono_ios_jit_contains_code (blocks [0], sizes [0]), "exact-fit allocation is outside prepared code arena");
+	MONO_IOS_VALIDATE (mono_ios_jit_write_address (blocks [0]) != blocks [0], "code allocation has no separate writable alias");
+	errno = 0;
+	sizes [1] = 16;
+	blocks [1] = mono_ios_jit_alloc (sizes [1]);
+	MONO_IOS_VALIDATE (!blocks [1] && errno == ENOMEM, "exhausted pool did not return ENOMEM");
+	mono_ios_jit_set_memory (blocks [0], 0xa5, sizes [0]);
+	MONO_IOS_VALIDATE (((const uint8_t *)blocks [0]) [0] == 0xa5 && ((const uint8_t *)blocks [0]) [sizes [0] - 1] == 0xa5, "pool fill is not visible through executable alias");
+	mono_ios_jit_free (blocks [0], sizes [0]);
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (blocks [0] != NULL, "freed pool could not be reused");
+	for (size_t index = 0; index < sizes [0]; ++index)
+		MONO_IOS_VALIDATE (((const uint8_t *)blocks [0]) [index] == 0, "reused allocation was not fully zeroed");
+	mono_ios_jit_free (blocks [0], sizes [0]);
+	blocks [0] = NULL;
+
+	sizes [0] = 16;
+	sizes [1] = 32;
+	sizes [2] = 48;
+	sizes [3] = mono_ios_validation_pool_size - sizes [0] - sizes [1] - sizes [2];
+	for (int index = 0; index < 4; ++index) {
+		blocks [index] = mono_ios_jit_alloc (sizes [index]);
+		MONO_IOS_VALIDATE (blocks [index] != NULL, "partitioned pool allocation failed");
+		MONO_IOS_VALIDATE (mono_ios_jit_contains_code (blocks [index], sizes [index]), "partition is outside prepared code arena");
+		for (int previous = 0; previous < index; ++previous)
+			MONO_IOS_VALIDATE ((uintptr_t)blocks [index] + sizes [index] <= (uintptr_t)blocks [previous] || (uintptr_t)blocks [previous] + sizes [previous] <= (uintptr_t)blocks [index], "live code allocations overlap");
+	}
+	mono_ios_jit_free (blocks [0], sizes [0]);
+	blocks [0] = NULL;
+	mono_ios_jit_free (blocks [2], sizes [2]);
+	blocks [2] = NULL;
+	errno = 0;
+	sizes [0] = 64;
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (!blocks [0] && errno == ENOMEM, "fragmented free ranges incorrectly satisfied contiguous allocation");
+	mono_ios_jit_free (blocks [1], sizes [1]);
+	blocks [1] = NULL;
+	sizes [0] = 96;
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (blocks [0] != NULL, "adjacent free ranges did not coalesce");
+	errno = 0;
+	mono_ios_jit_free (blocks [0], 32);
+	MONO_IOS_VALIDATE (errno == EINVAL, "mismatched free size was not rejected");
+	mono_ios_jit_free (blocks [0], sizes [0]);
+	blocks [0] = NULL;
+	mono_ios_jit_free (blocks [3], sizes [3]);
+	blocks [3] = NULL;
+	sizes [0] = mono_ios_validation_pool_size;
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (blocks [0] != NULL, "fully freed pool did not coalesce to original capacity");
+	mono_ios_jit_free (blocks [0], sizes [0]);
+	blocks [0] = NULL;
+
+	sizes [0] = 64;
+	blocks [0] = mono_ios_jit_alloc (sizes [0]);
+	MONO_IOS_VALIDATE (blocks [0] != NULL, "native execution allocation failed");
+	code = (uint8_t *)blocks [0];
+	mono_ios_jit_write_memory (code, instructions, sizeof (instructions));
+	mono_arch_flush_icache (code, sizeof (instructions));
+	MONO_IOS_VALIDATE (mono_ios_validation_call (code) == 0x1357, "first emitted instruction execution failed");
+	memcpy (unaligned + 1, &changed_instruction, sizeof (changed_instruction));
+	mono_ios_jit_write_memory (code, unaligned + 1, sizeof (changed_instruction));
+	mono_arch_flush_icache (code, sizeof (instructions));
+	MONO_IOS_VALIDATE (mono_ios_validation_call (code) == 0x2468, "32-bit instruction rewrite after execution returned stale result");
+	mono_ios_jit_write_memory (code + 8, instructions, sizeof (instructions));
+	mono_ios_jit_write_memory (code + 16, thunk_instructions, sizeof (thunk_instructions));
+	literal = code + 24;
+	MONO_IOS_VALIDATE ((uintptr_t)literal % sizeof (uint64_t) == 0 && (uintptr_t)mono_ios_jit_write_address (literal) % sizeof (uint64_t) == 0, "native 64-bit target slot is misaligned");
+	target = (uintptr_t)code;
+	mono_ios_jit_write_memory (literal, &target, sizeof (target));
+	mono_arch_flush_icache (code, 32);
+	MONO_IOS_VALIDATE (mono_ios_validation_call (code + 16) == 0x2468, "native indirect target execution failed");
+	target = (uintptr_t)(code + 8);
+	memcpy (unaligned + 1, &target, sizeof (target));
+	mono_ios_jit_write_memory (literal, unaligned + 1, sizeof (target));
+	mono_arch_flush_icache (literal, sizeof (target));
+	MONO_IOS_VALIDATE (mono_ios_validation_call (code + 16) == 0x1357, "64-bit target rewrite after execution returned stale result");
+
+finish:
+	for (int index = 0; index < 4; ++index)
+		if (blocks [index])
+			mono_ios_jit_free (blocks [index], sizes [index]);
+	if (failure) {
+		if (owns_pool)
+			mono_ios_jit_cleanup ();
+		fprintf (stderr, "FAIL native: %s; prepare=%d errno=%d\n", failure, prepare_error, errno);
+		return 1;
+	}
+	printf ("PASS native: execute/rewrite32, indirect-target/rewrite64, invalid sizes, exact fit, exhaustion, fragmentation, coalescing, reuse, zeroing; 32 MiB pool retained\n");
+	return 0;
+
+#undef MONO_IOS_VALIDATE
+}
+
+#include <mono/jit/jit.h>
+#include <mono/metadata/appdomain.h>
+#include <mono/metadata/assembly.h>
+#include <mono/metadata/class.h>
+#include <mono/metadata/loader.h>
+#include <mono/metadata/mono-config.h>
+#include <mono/metadata/mono-gc.h>
+#include <mono/metadata/object.h>
+#include <mono/metadata/threads.h>
+#include <mono/Scripts/mono-ios-jit.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+extern "C" {
+typedef struct _LivenessState LivenessState;
+LivenessState *mono_unity_liveness_allocate_struct (MonoClass *, unsigned int, void (*) (void **, int, void *), void *, void *(*) (void *, int, void *));
+void mono_unity_liveness_calculation_from_root (MonoObject *, LivenessState *);
+void mono_unity_liveness_finalize (LivenessState *);
+void mono_unity_liveness_free_struct (LivenessState *);
+int mono_ios_validation_native (void);
+int mono_ios_validation_thunks (MonoDomain *, MonoClass *);
+}
+
+static MonoMethod *
+checked_method (MonoClass *checks, const char *name, int argument_count)
+{
+	MonoMethod *method = mono_class_get_method_from_name (checks, name, argument_count);
+	void *code = method ? mono_compile_method (method) : NULL;
+	MonoJitInfo *info = code ? mono_jit_info_table_find (mono_domain_get (), code) : NULL;
+	int size = info ? mono_jit_info_get_code_size (info) : 0;
+	if (!method || !code || !info || mono_jit_info_get_method (info) != method || size <= 0 ||
+	    mono_jit_info_get_code_start (info) != code || !mono_ios_jit_contains_code (code, (size_t)size)) {
+		fprintf (stderr, "FAIL method JIT identity: %s\n", name);
+		return NULL;
+	}
+	return method;
+}
+
+static int
+invoke_integer (MonoMethod *method, void **arguments, int expected, const char *name)
+{
+	MonoObject *exception = NULL;
+	MonoObject *result = mono_runtime_invoke (method, NULL, arguments, &exception);
+	if (exception) {
+		fprintf (stderr, "FAIL %s: managed exception %s\n", name, mono_class_get_name (mono_object_get_class (exception)));
+		return 0;
+	}
+	if (!result || mono_object_get_class (result) != mono_get_int32_class () || *(int32_t *)mono_object_unbox (result) != expected) {
+		fprintf (stderr, "FAIL %s: unexpected return value\n", name);
+		return 0;
+	}
+	return 1;
+}
+
+static int
+invoke_native_callback (void *address, int value)
+{
+	if (!address || !mono_ios_jit_contains_code (address, sizeof (uint32_t)))
+		return -1;
+	return ((int (*) (int))address) (value);
+}
+
+static int
+thunk_native (int value)
+{
+	return value * 3 + 1;
+}
+
+static int
+managed_checks (MonoClass *checks)
+{
+	int passed = 1;
+	int input = 10;
+	void *basic_arguments [] = { &input };
+	MonoMethod *basic = checked_method (checks, "Basic", 1);
+	if (!basic || !invoke_integer (basic, basic_arguments, 42, "Basic"))
+		passed = 0;
+	else
+		printf ("PASS managed Basic\n");
+	const struct { const char *name; int expected; } cases [] = {
+		{ "Generics", 37 }, { "DynamicMethods", 42 },
+		{ "Delegates", 37 }, { "ReverseCallback", 38 }, { "Exceptions", 42 }, { "Thunks", 268 }, { "NativeThunks", 268 }
+	};
+	for (size_t i = 0; i < sizeof (cases) / sizeof (cases [0]); ++i) {
+		MonoMethod *method = checked_method (checks, cases [i].name, 0);
+		if (!method || !invoke_integer (method, NULL, cases [i].expected, cases [i].name))
+			passed = 0;
+		else
+			printf ("PASS managed %s\n", cases [i].name);
+	}
+	MonoMethod *throws = checked_method (checks, "ThrowExpected", 0);
+	if (!throws)
+		return 0;
+	MonoObject *exception = NULL;
+	mono_runtime_invoke (throws, NULL, NULL, &exception);
+	if (!exception || strcmp (mono_class_get_name (mono_object_get_class (exception)), "InvalidOperationException") != 0) {
+		fprintf (stderr, "FAIL native exception capture\n");
+		return 0;
+	}
+	printf ("PASS native exception capture\n");
+	return passed;
+}
+
+struct ThreadRun {
+	MonoDomain *domain;
+	MonoMethod *method;
+	pthread_mutex_t mutex;
+	pthread_cond_t condition;
+	int ready;
+	int start;
+};
+
+struct ThreadCall {
+	ThreadRun *run;
+	int seed;
+	int passed;
+};
+
+static void
+thread_result (int result, const char *operation)
+{
+	if (result) {
+		fprintf (stderr, "FAIL %s: pthread error %d\n", operation, result);
+		abort ();
+	}
+}
+
+static void *
+thread_checks (void *argument)
+{
+	ThreadCall *call = (ThreadCall *)argument;
+	MonoThread *thread = mono_thread_attach (call->run->domain);
+	thread_result (pthread_mutex_lock (&call->run->mutex), "worker mutex lock");
+	++call->run->ready;
+	thread_result (pthread_cond_broadcast (&call->run->condition), "worker ready broadcast");
+	while (!call->run->start)
+		thread_result (pthread_cond_wait (&call->run->condition, &call->run->mutex), "worker start wait");
+	thread_result (pthread_mutex_unlock (&call->run->mutex), "worker mutex unlock");
+	if (thread) {
+		void *arguments [] = { &call->seed };
+		call->passed = invoke_integer (call->run->method, arguments, 32 * call->seed + 496, "attached pthread allocation/collection");
+		mono_thread_detach (thread);
+	}
+	return NULL;
+}
+
+static int
+attached_threads (MonoDomain *domain, MonoClass *checks)
+{
+	MonoMethod *method = checked_method (checks, "ThreadWork", 1);
+	if (!method)
+		return 0;
+	ThreadRun run = { domain, method, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, 0 };
+	ThreadCall calls [2] = { { &run, 11, 0 }, { &run, 19, 0 } };
+	pthread_t threads [2];
+	int created = 0;
+	int generation = mono_gc_max_generation ();
+	int collections = mono_gc_collection_count (generation);
+	while (created < 2) {
+		if (pthread_create (&threads [created], NULL, thread_checks, &calls [created]) != 0)
+			break;
+		++created;
+	}
+	thread_result (pthread_mutex_lock (&run.mutex), "main mutex lock");
+	while (run.ready != created)
+		thread_result (pthread_cond_wait (&run.condition, &run.mutex), "main ready wait");
+	run.start = 1;
+	thread_result (pthread_cond_broadcast (&run.condition), "main start broadcast");
+	thread_result (pthread_mutex_unlock (&run.mutex), "main mutex unlock");
+	for (int i = 0; i < created; ++i)
+		thread_result (pthread_join (threads [i], NULL), "worker join");
+	thread_result (pthread_cond_destroy (&run.condition), "condition destroy");
+	thread_result (pthread_mutex_destroy (&run.mutex), "mutex destroy");
+	if (created != 2 || !calls [0].passed || !calls [1].passed || generation < 1 || mono_gc_collection_count (generation) <= collections) {
+		fprintf (stderr, "FAIL SGen attached-thread collection\n");
+		return 0;
+	}
+	printf ("PASS SGen attached-thread allocation, roots, collection and detach\n");
+	return 1;
+}
+
+struct LivenessProbe {
+	MonoObject *expected [4];
+	unsigned int seen;
+	int invalid;
+	int blocks_used;
+	union Block { void *alignment; unsigned char bytes [8192]; } blocks [2];
+};
+
+static void *
+liveness_allocate (void *previous, int size, void *argument)
+{
+	LivenessProbe *probe = (LivenessProbe *)argument;
+	if (!size)
+		return NULL;
+	if (previous || size != 8192 || probe->blocks_used == 2)
+		__builtin_trap ();
+	return probe->blocks [probe->blocks_used++].bytes;
+}
+
+static void
+liveness_objects (void **objects, int count, void *argument)
+{
+	LivenessProbe *probe = (LivenessProbe *)argument;
+	for (int i = 0; i < count; ++i) {
+		int index = 0;
+		while (index < 3 && objects [i] != probe->expected [index])
+			++index;
+		if (index == 3 || (probe->seen & (1u << index)))
+			probe->invalid = 1;
+		else
+			probe->seen |= 1u << index;
+	}
+}
+
+static int
+liveness_checks (MonoImage *image, MonoClass *checks)
+{
+	MonoMethod *create = checked_method (checks, "CreateGraph", 0);
+	MonoMethod *check = checked_method (checks, "CheckGraph", 1);
+	MonoClass *node = mono_class_from_name (image, "MonoIosValidation", "Node");
+	if (!create || !check || !node)
+		return 0;
+	MonoObject *exception = NULL;
+	MonoObject *graph = mono_runtime_invoke (create, NULL, NULL, &exception);
+	if (!graph || exception) {
+		fprintf (stderr, "FAIL liveness graph creation\n");
+		return 0;
+	}
+	uint32_t handle = mono_gchandle_new (graph, 1);
+	mono_gc_collect (mono_gc_max_generation ());
+	LivenessProbe probe = {};
+	LivenessState *state = mono_unity_liveness_allocate_struct (node, 4, liveness_objects, &probe, liveness_allocate);
+	if (!state) {
+		mono_gchandle_free (handle);
+		fprintf (stderr, "FAIL liveness state creation\n");
+		return 0;
+	}
+	MonoArray *values = (MonoArray *)mono_gchandle_get_target (handle);
+	int shape_ok = values && mono_array_length (values) == 4;
+	if (shape_ok) {
+		mono_gc_stop_world ();
+		for (int i = 0; i < 4; ++i)
+			probe.expected [i] = *(MonoObject **)mono_array_addr_with_size (values, sizeof (MonoObject *), (uintptr_t)i);
+		mono_unity_liveness_calculation_from_root (probe.expected [0], state);
+		mono_unity_liveness_finalize (state);
+		mono_gc_restart_world ();
+	}
+	mono_unity_liveness_free_struct (state);
+	mono_gc_collect (mono_gc_max_generation ());
+	graph = mono_gchandle_get_target (handle);
+	void *arguments [] = { graph };
+	int passed = shape_ok && !probe.invalid && probe.seen == 7 && invoke_integer (check, arguments, 110, "graph after liveness and GC");
+	mono_gchandle_free (handle);
+	if (!passed) {
+		fprintf (stderr, "FAIL Unity liveness roots, recursion, deduplication or mark cleanup\n");
+		return 0;
+	}
+	printf ("PASS Unity liveness cycle, unrelated-node exclusion, mark cleanup and GC\n");
+	return 1;
+}
+
+extern "C" int
+mono_ios_validation_run (const char *managed_directory, const char *config_directory, const char *validation_assembly_path)
+{
+	static int invoked;
+	if (!managed_directory || !config_directory || !validation_assembly_path) {
+		fprintf (stderr, "FAIL validation paths must be supplied\n");
+		return 1;
+	}
+	if (mono_get_root_domain () || __atomic_exchange_n (&invoked, 1, __ATOMIC_ACQ_REL)) {
+		fprintf (stderr, "FAIL validation requires one invocation in a fresh process before Unity or Mono startup\n");
+		return 1;
+	}
+	printf ("runtime-patch-sha256=%s\n", MONO_IOS_VALIDATION_PATCH_SHA256);
+	if (mono_ios_validation_native () != 0) {
+		fprintf (stderr, "FAIL native code-pool validation; Mono was not initialized\n");
+		return 1;
+	}
+	mono_set_dirs (managed_directory, config_directory);
+	mono_set_assemblies_path (managed_directory);
+	mono_config_parse (NULL);
+	MonoDomain *domain = mono_jit_init_version ("mono-ios-validation", "v4.0.30319");
+	if (!domain) {
+		fprintf (stderr, "FAIL Mono initialization\n");
+		mono_ios_jit_cleanup ();
+		return 1;
+	}
+	mono_add_internal_call ("MonoIosValidation.Checks::InvokeNativeCallback", (const void *)invoke_native_callback);
+	mono_add_internal_call ("MonoIosValidation.Checks::ThunkNative", (const void *)thunk_native);
+	MonoAssembly *assembly = mono_domain_assembly_open (domain, validation_assembly_path);
+	MonoImage *image = assembly ? mono_assembly_get_image (assembly) : NULL;
+	MonoClass *checks = image ? mono_class_from_name (image, "MonoIosValidation", "Checks") : NULL;
+	int passed = 0;
+	if (checks) {
+		printf ("PASS managed DLL loading\n");
+		int managed_passed = managed_checks (checks);
+		int threads_passed = attached_threads (domain, checks);
+		int liveness_passed = liveness_checks (image, checks);
+		int thunks_passed = mono_ios_validation_thunks (domain, checks) == 0;
+		passed = managed_passed && threads_passed && liveness_passed && thunks_passed;
+	} else {
+		fprintf (stderr, "FAIL managed DLL loading or validation class lookup\n");
+	}
+	mono_jit_cleanup (domain);
+	printf ("%s iOS Mono diagnostic validation\n", passed ? "PASS" : "FAIL");
+	return passed ? 0 : 1;
+}
+''',
+    "mono-ios-validation-thunks.c": r'''#include <config.h>
+#include <mono/metadata/domain-internals.h>
+#include <mono/metadata/class.h>
+#include <mono/metadata/loader.h>
+#include <mono/metadata/object.h>
+#include <mono/Scripts/mono-ios-jit.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+static const size_t mono_ios_validation_thunk_size = 16;
+static const size_t mono_ios_validation_target_offset = 8;
+static const uint32_t mono_ios_validation_ldr_x16_literal = 0x58000050u;
+static const uint32_t mono_ios_validation_br_x16 = 0xd61f0200u;
+
+typedef struct {
+	unsigned method_count;
+	unsigned slot_count;
+	unsigned live_slot_count;
+	int failed;
+} MonoIosThunkValidation;
+
+static void
+mono_ios_validation_inspect_thunks (MonoDomain *domain, MonoMethod *method, MonoJitInfo *jinfo, void *user_data)
+{
+	MonoIosThunkValidation *validation = user_data;
+	MonoThunkJitInfo *thunks;
+	uintptr_t code;
+	uintptr_t start;
+	const char *name;
+	size_t size;
+	(void)domain;
+	if (validation->failed || !jinfo || jinfo->is_trampoline || jinfo->from_aot || jinfo->is_interp || !jinfo->has_thunk_info)
+		return;
+	name = method ? mono_method_get_name (method) : "<unknown>";
+	thunks = mono_jit_info_get_thunk_info (jinfo);
+	code = (uintptr_t)mono_jit_info_get_code_start (jinfo);
+	if (!thunks || thunks->thunks_offset < jinfo->code_size || thunks->thunks_size <= 0 || thunks->thunks_size % mono_ios_validation_thunk_size || (uintptr_t)thunks->thunks_offset > UINTPTR_MAX - code) {
+		fprintf (stderr, "FAIL thunks: invalid metadata for %s; code_size=%d\n", name, jinfo->code_size);
+		validation->failed = 1;
+		return;
+	}
+	start = code + (uintptr_t)thunks->thunks_offset;
+	size = (size_t)thunks->thunks_size;
+	if (!mono_ios_jit_contains_code ((void *)start, size)) {
+		fprintf (stderr, "FAIL thunks: %s thunk range lies outside prepared arena; offset=%d size=%d\n", name, thunks->thunks_offset, thunks->thunks_size);
+		validation->failed = 1;
+		return;
+	}
+	++validation->method_count;
+	for (size_t offset = 0; offset < size; offset += mono_ios_validation_thunk_size) {
+		uint32_t instructions [2];
+		uint64_t target;
+		void *literal = (void *)(start + offset + mono_ios_validation_target_offset);
+		void *writable = mono_ios_jit_write_address (literal);
+		++validation->slot_count;
+		if ((uintptr_t)literal % sizeof (target) || (uintptr_t)writable % sizeof (target) || writable == literal) {
+			fprintf (stderr, "FAIL thunks: %s target slot is misaligned or lacks writable alias; code_size=%d thunk_offset=%d slot_offset=%zu RX=%p RW=%p\n", name, jinfo->code_size, thunks->thunks_offset, offset, literal, writable);
+			validation->failed = 1;
+			return;
+		}
+		memcpy (instructions, (void *)(start + offset), sizeof (instructions));
+		if (!instructions [0])
+			continue;
+		memcpy (&target, literal, sizeof (target));
+		if (instructions [0] != mono_ios_validation_ldr_x16_literal || instructions [1] != mono_ios_validation_br_x16 || !target) {
+			fprintf (stderr, "FAIL thunks: unexpected populated ARM64 thunk for %s; slot_offset=%zu instructions=%08x,%08x target=%llx\n", name, offset, instructions [0], instructions [1], (unsigned long long)target);
+			validation->failed = 1;
+			return;
+		}
+		++validation->live_slot_count;
+	}
+}
+
+int
+mono_ios_validation_thunks (MonoDomain *domain, MonoClass *checks)
+{
+	MonoIosThunkValidation validation = { 0, 0, 0, 0 };
+	unsigned parity_mask = 0;
+	unsigned caller_count = 0;
+	const char *prefixes [2] = { "ThunkCaller", "NativeThunkCaller" };
+	for (unsigned family = 0; family < 2; ++family) {
+		for (unsigned index = 0; index < 8; ++index) {
+			char name [32];
+			MonoMethod *method;
+			MonoJitInfo *jinfo;
+			void *compiled;
+			int code_size;
+			snprintf (name, sizeof (name), "%s%u", prefixes [family], index);
+			method = mono_class_get_method_from_name (checks, name, 1);
+			compiled = method ? mono_compile_method (method) : NULL;
+			jinfo = compiled ? mono_jit_info_table_find (domain, compiled) : NULL;
+			if (!jinfo || jinfo->from_aot || jinfo->is_interp || jinfo->is_trampoline || mono_jit_info_get_method (jinfo) != method) {
+				fprintf (stderr, "FAIL thunks: %s has no matching native JIT body\n", name);
+				return 1;
+			}
+			code_size = mono_jit_info_get_code_size (jinfo);
+			if (code_size <= 0 || code_size % 4 || !mono_ios_jit_contains_code (mono_jit_info_get_code_start (jinfo), (size_t)code_size)) {
+				fprintf (stderr, "FAIL thunks: %s has invalid native code range; code_size=%d\n", name, code_size);
+				return 1;
+			}
+			parity_mask |= 1u << ((unsigned)code_size % 8 / 4);
+			++caller_count;
+		}
+	}
+	mono_domain_jit_foreach (domain, mono_ios_validation_inspect_thunks, &validation);
+	if (validation.failed)
+		return 1;
+	if (parity_mask != 3 || !validation.live_slot_count) {
+		fprintf (stderr, "INCOMPLETE thunks: callers=%u code_length_parities=%u thunk_methods=%u reserved_slots=%u populated_slots=%u; require both 0/4 modulo 8 code lengths and populated far thunk\n", caller_count, parity_mask, validation.method_count, validation.slot_count, validation.live_slot_count);
+		return 2;
+	}
+	printf ("PASS thunks: callers=%u both code-length parities; methods=%u reserved_slots=%u populated_slots=%u; actual RX/RW target alignment verified\n", caller_count, validation.method_count, validation.slot_count, validation.live_slot_count);
+	return 0;
+}''',
+}
+
+
 def build_patch():
     source_directory = Path(__file__).resolve().parent
     patch = PATCH
@@ -846,16 +1650,66 @@ def apply_changes(checkout, check_only, patch):
     return 0
 
 
+def emit_validation(repository, patch):
+    repository = repository.resolve(strict=True)
+    if not repository.is_dir():
+        raise ValueError("Validation repository must be an existing directory.")
+    directory = repository / "mono" / "Scripts"
+    for parent in (repository / "mono", directory):
+        if parent.resolve() != parent or parent.is_symlink():
+            raise ValueError(f"Validation destination uses a redirected path: {parent}")
+        if parent.exists() and not parent.is_dir():
+            raise ValueError(f"Validation destination is not a directory: {parent}")
+    sources = dict(VALIDATION_SOURCES)
+    digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+    sources["mono-ios-validation.cpp"] = (
+        f'#define MONO_IOS_VALIDATION_PATCH_SHA256 "{digest}"\n'
+        + sources["mono-ios-validation.cpp"]
+    )
+    pending = []
+    for name, source in sources.items():
+        destination = directory / name
+        if destination.resolve() != destination or destination.is_symlink():
+            raise ValueError(f"Validation destination uses a redirected path: {destination}")
+        content = source.encode("utf-8")
+        if destination.exists():
+            if not destination.is_file() or destination.read_bytes() != content:
+                raise ValueError(f"Validation source conflict; no files written: {destination}")
+        else:
+            pending.append((destination, content))
+    directory.mkdir(parents=True, exist_ok=True)
+    created = []
+    try:
+        for destination, content in pending:
+            with destination.open("xb") as output:
+                created.append(destination)
+                output.write(content)
+    except OSError:
+        for destination in reversed(created):
+            destination.unlink()
+        raise
+    print(f"Validation sources ready in {directory}.")
+    print("Run only in a fresh diagnostic app process before Unity or Mono initialization.")
+    print("Sources emitted; no compilation or device execution performed.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=f"Patch original Unity Mono {BASE_BRANCH} sources, based on {BASE_REVISION}, for ARM64 iOS SGen JIT with Unity liveness."
     )
-    parser.add_argument("checkout", nargs="?", type=Path, default=Path.cwd())
-    parser.add_argument("--check", action="store_true", help="Validate applicability without changing files.")
+    parser.add_argument("checkout", nargs="?", type=Path)
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--check", action="store_true", help="Validate applicability without changing files.")
+    action.add_argument("--emit-validation", type=Path, metavar="REPOSITORY", help="Emit opt-in device validation sources into REPOSITORY/mono/Scripts without patching Mono.")
     arguments = parser.parse_args()
+    if arguments.emit_validation is not None and arguments.checkout is not None:
+        parser.error("--emit-validation cannot be combined with a checkout argument.")
     try:
         patch = build_patch()
-        checkout = checked_checkout(arguments.checkout)
+        if arguments.emit_validation is not None:
+            return emit_validation(arguments.emit_validation, patch)
+        checkout = checked_checkout(arguments.checkout or Path.cwd())
         return apply_changes(checkout, arguments.check, patch)
     except (OSError, ValueError, UnicodeError) as error:
         sys.stderr.write(f"Cannot prepare Mono: {error}\n")

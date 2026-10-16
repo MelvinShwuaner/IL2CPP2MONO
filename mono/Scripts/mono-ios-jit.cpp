@@ -6,7 +6,6 @@
 
 #include "mono-ios-jit.h"
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
@@ -28,8 +27,6 @@
 
 typedef struct _MonoIosJitRange MonoIosJitRange;
 typedef struct _MonoIosJitArena MonoIosJitArena;
-typedef int (*MonoIosJitWriteFunction) (pthread_jit_write_callback_t, void *);
-
 struct _MonoIosJitRange {
 	size_t offset;
 	size_t size;
@@ -39,21 +36,11 @@ struct _MonoIosJitRange {
 struct _MonoIosJitArena {
 	void *execute_address;
 	void *write_address;
-	MonoIosJitWriteFunction write_function;
 	size_t capacity;
 	MonoIosJitRange *free_ranges;
 	MonoIosJitRange *allocations;
 	MonoIosJitArena *next;
 };
-
-typedef struct {
-	MonoIosJitArena *arena;
-	void *address;
-	const void *source;
-	size_t size;
-	int fill_value;
-	int is_fill;
-} MonoIosJitWrite;
 
 static MonoIosJitArena *arena_head;
 static pthread_mutex_t arena_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -61,7 +48,6 @@ static pthread_mutex_t arena_mutex = PTHREAD_MUTEX_INITIALIZER;
 extern "C" {
 
 static MonoIosJitArena *find_arena (void *address);
-static int write_callback (void *argument);
 static void write_arena_memory (MonoIosJitArena *arena, void *address, const void *source, size_t size, int fill_value, int is_fill);
 static int round_size (size_t size, size_t alignment, size_t *rounded_size);
 static int startup_capacity (size_t *capacity);
@@ -73,8 +59,6 @@ static int mach_error_number (kern_return_t result);
 static int report_prepare_error (const char *stage, int error, kern_return_t native_error = KERN_SUCCESS, const char *detail = "");
 static void release_arena (MonoIosJitArena *arena);
 static void release_ranges (MonoIosJitRange *range);
-
-PTHREAD_JIT_WRITE_ALLOW_CALLBACKS_NP (write_callback);
 
 __attribute__((noinline, optnone, naked))
 static void *
@@ -121,12 +105,6 @@ mono_ios_jit_prepare (size_t capacity)
 	arena = (MonoIosJitArena *)calloc (1, sizeof (*arena));
 	if (!arena)
 		return report_prepare_error ("arena allocation", ENOMEM);
-	arena->write_function = (MonoIosJitWriteFunction)dlsym (RTLD_DEFAULT, "pthread_jit_write_with_callback_np");
-	if (!arena->write_function) {
-		report_prepare_error ("pthread_jit_write_with_callback_np", ENOSYS, KERN_SUCCESS, dlerror ());
-		free (arena);
-		return ENOSYS;
-	}
 	arena->free_ranges = (MonoIosJitRange *)calloc (1, sizeof (*arena->free_ranges));
 	if (!arena->free_ranges) {
 		free (arena);
@@ -406,43 +384,32 @@ find_arena (void *address)
 	return NULL;
 }
 
-static int
-write_callback (void *argument)
-{
-	MonoIosJitWrite *write = (MonoIosJitWrite *)argument;
-	MonoIosJitArena *arena = write->arena;
-	size_t offset = (uintptr_t)write->address - (uintptr_t)arena->execute_address;
-	void *destination;
-
-	if (!arena->write_address || offset > arena->capacity || write->size > arena->capacity - offset)
-		__builtin_trap ();
-	destination = (char *)arena->write_address + offset;
-	if (write->is_fill) {
-		memset (destination, write->fill_value, write->size);
-	} else {
-		if (!write->source && write->size)
-			__builtin_trap ();
-		if (write->size == sizeof (uint32_t) && (uintptr_t)destination % sizeof (uint32_t) == 0) {
-			uint32_t value;
-			memcpy (&value, write->source, sizeof (value));
-			__atomic_store_n ((uint32_t *)destination, value, __ATOMIC_RELAXED);
-		} else if (write->size == sizeof (uint64_t) && (uintptr_t)destination % sizeof (uint64_t) == 0) {
-			uint64_t value;
-			memcpy (&value, write->source, sizeof (value));
-			__atomic_store_n ((uint64_t *)destination, value, __ATOMIC_RELAXED);
-		} else {
-			memcpy (destination, write->source, write->size);
-		}
-	}
-	return 0;
-}
-
 static void
 write_arena_memory (MonoIosJitArena *arena, void *address, const void *source, size_t size, int fill_value, int is_fill)
 {
-	MonoIosJitWrite write = { arena, address, source, size, fill_value, is_fill };
+	size_t offset = (uintptr_t)address - (uintptr_t)arena->execute_address;
+	void *destination;
 
-	arena->write_function (write_callback, &write);
+	if (!arena->write_address || offset > arena->capacity || size > arena->capacity - offset)
+		__builtin_trap ();
+	destination = (char *)arena->write_address + offset;
+	if (is_fill) {
+		memset (destination, fill_value, size);
+	} else {
+		if (!source && size)
+			__builtin_trap ();
+		if (size == sizeof (uint32_t) && (uintptr_t)destination % sizeof (uint32_t) == 0) {
+			uint32_t value;
+			memcpy (&value, source, sizeof (value));
+			__atomic_store_n ((uint32_t *)destination, value, __ATOMIC_RELAXED);
+		} else if (size == sizeof (uint64_t) && (uintptr_t)destination % sizeof (uint64_t) == 0) {
+			uint64_t value;
+			memcpy (&value, source, sizeof (value));
+			__atomic_store_n ((uint64_t *)destination, value, __ATOMIC_RELAXED);
+		} else {
+			memcpy (destination, source, size);
+		}
+	}
 }
 
 static int
