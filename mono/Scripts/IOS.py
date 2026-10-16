@@ -1,273 +1,810 @@
-import re
+import argparse
+from difflib import unified_diff
 from pathlib import Path
+import subprocess
+import sys
 
 
-def edit(path, old, new):
-  path = Path(path)
-  text = path.read_text()
-  path.write_text(text.replace(old, new))
-def insert(path, new):
-  path = Path(path)
-  text = path.read_text()
-  path.write_text(new+text)
-# ---------------------------------------------------------------
-# Build configuration
-# ---------------------------------------------------------------
-path = "mono/metadata/mono-gc.h"
-edit(path, "void mono_gc_stop_world (void);", "MONO_API void mono_gc_stop_world (void);")
-edit(path, "void mono_gc_restart_world (void);", "MONO_API void mono_gc_restart_world (void);")
-
-ios_mk = "sdks/builds/ios.mk"
-
-# The stock device target is full-AOT only ("jit" is in the list of
-# disabled features). Use the feature set of the Android target
-# instead, which is a JIT runtime ("com" and "shared_perfcounters"
-# stay off, as on every iOS target).
-edit(
-  ios_mk,
-  "\t--enable-minimal=ssa,com,interpreter,jit,portability,"
-  "assembly_remapping,attach,verifier,full_messages,appdomains,"
-  "security,sgen_remset,sgen_marksweep_par,sgen_marksweep_fixed,"
-  "sgen_marksweep_fixed_par,sgen_copying,logging,remoting,"
-  "shared_perfcounters,gac \\\n",
-  "\t--enable-minimal=ssa,com,portability,attach,verifier,"
-  "full_messages,security,sgen_remset,sgen_marksweep_par,"
-  "sgen_marksweep_fixed,sgen_marksweep_fixed_par,sgen_copying,"
-  "logging,shared_perfcounters,shared_handles,interpreter,gac,"
-  "cfgdir_config \\\n",
+BASE_REVISION = "b8eb56fab45dd52845fabba7b7ddc9a80b2b0498"
+BASE_BRANCH = "unity-2022.3-mbe"
+ASSET_NAMES = ("mono-ios-jit.cpp", "mono-ios-jit.h")
+PATCHED_PATHS = (
+    'configure.ac',
+    'mono/arch/arm64/arm64-codegen.h',
+    'mono/metadata/Makefile.am',
+    'mono/metadata/icall-signatures.h',
+    'mono/metadata/mono-gc.h',
+    'mono/metadata/sgen-mono.c',
+    'mono/metadata/unity-liveness.c',
+    'mono/mini/aot-compiler.c',
+    'mono/mini/debugger-agent.c',
+    'mono/mini/driver.c',
+    'mono/mini/jit.h',
+    'mono/mini/mini-arm64.c',
+    'mono/mini/mini-runtime.c',
+    'mono/mini/mini.c',
+    'mono/mini/tramp-arm64.c',
+    'mono/utils/Makefile.am',
+    'mono/utils/mono-codeman.c',
+    'mono/utils/mono-codeman.h',
+    'mono/utils/mono-sigcontext.h',
+    'mono/utils/mono-threads-mach-helper.c',
+    'sdks/builds/ios.mk',
+    'mono/Scripts/mono-ios-jit.cpp',
+    'mono/Scripts/mono-ios-jit.h',
+)
+PATCH = (
+    'diff --git a/configure.ac b/configure.ac\n'
+    '--- a/configure.ac\n'
+    '+++ b/configure.ac\n'
+    '@@ -5083,6 +5083,56 @@\n'
+    ' \n'
+    ' AM_CONDITIONAL(TARGET_OSX, test x$target_osx = xyes)\n'
+    ' \n'
+    '+AC_ARG_ENABLE(ios-jit, [  --enable-ios-jit          Enable the ARM64 iOS JIT code pool], [], [enable_ios_jit=no])\n'
+    '+case "$enable_ios_jit" in\n'
+    '+yes)\n'
+    '+\tif test "x$target_ios" != "xyes" -o "x$TARGET" != "xARM64" -o "x$host" != "x$target"; then\n'
+    '+\t\tAC_MSG_ERROR([--enable-ios-jit requires an ARM64 iOS device runtime])\n'
+    '+\tfi\n'
+    '+\tif test "x$mono_feature_disable_jit" = "xyes"; then\n'
+    '+\t\tAC_MSG_ERROR([--enable-ios-jit cannot be combined with --enable-minimal=jit])\n'
+    '+\tfi\n'
+    '+\tif test "x$support_boehm" != "xno"; then\n'
+    '+\t\tAC_MSG_ERROR([--enable-ios-jit requires --disable-boehm and the SGen collector])\n'
+    '+\tfi\n'
+    '+\tif test "x$enable_llvm" = "xyes" -o "x$enable_llvm_runtime" = "xyes" -o "x$with_bitcode" = "xyes"; then\n'
+    '+\t\tAC_MSG_ERROR([--enable-ios-jit requires the Mono JIT without LLVM or bitcode])\n'
+    '+\tfi\n'
+    '+\tAC_COMPILE_IFELSE([AC_LANG_SOURCE([\n'
+    '+#include <TargetConditionals.h>\n'
+    '+#include <Availability.h>\n'
+    '+#if !TARGET_OS_IOS || TARGET_OS_SIMULATOR || !defined(__aarch64__) || defined(__arm64e__)\n'
+    '+#error ARM64 iOS device target required; arm64e is unsupported\n'
+    '+#endif\n'
+    '+#if __IPHONE_OS_VERSION_MIN_REQUIRED < 170400\n'
+    '+#error iOS 17.4 or newer deployment target required\n'
+    '+#endif\n'
+    '+#if __IPHONE_OS_VERSION_MIN_REQUIRED > __IPHONE_OS_VERSION_MAX_ALLOWED\n'
+    '+#error Deployment target exceeds the selected iPhoneOS SDK\n'
+    '+#endif\n'
+    '+#ifdef DISABLE_JIT\n'
+    '+#error JIT must be enabled\n'
+    '+#endif\n'
+    '+int main (void) { return 0; }\n'
+    '+\t])], [], [AC_MSG_ERROR([--enable-ios-jit requires the iPhoneOS SDK, iOS 17.4 or newer, and JIT enabled])])\n'
+    '+\tAC_MSG_CHECKING([for iOS JIT write callbacks])\n'
+    '+\tAC_LINK_IFELSE([AC_LANG_SOURCE([\n'
+    '+#define _DARWIN_C_SOURCE\n'
+    '+#include <pthread.h>\n'
+    '+static int mono_ios_jit_write_probe (void *argument) { return argument != 0; }\n'
+    '+PTHREAD_JIT_WRITE_ALLOW_CALLBACKS_NP (mono_ios_jit_write_probe);\n'
+    '+int main (void) { return pthread_jit_write_with_callback_np (mono_ios_jit_write_probe, 0); }\n'
+    '+\t])], [AC_MSG_RESULT([yes])], [AC_MSG_ERROR([the iPhoneOS SDK must provide PTHREAD_JIT_WRITE_ALLOW_CALLBACKS_NP and pthread_jit_write_with_callback_np])])\n'
+    '+\tAC_DEFINE(ENABLE_IOS_JIT, 1, [Enable the ARM64 iOS JIT code pool])\n'
+    '+\t;;\n'
+    '+no)\n'
+    '+\t;;\n'
+    '+*)\n'
+    '+\tAC_MSG_ERROR([--enable-ios-jit accepts only yes or no])\n'
+    '+\t;;\n'
+    '+esac\n'
+    '+AM_CONDITIONAL(ENABLE_IOS_JIT, test x$enable_ios_jit = xyes)\n'
+    '+\n'
+    ' AC_SUBST(SIZEOF_VOID_P,[$ac_cv_sizeof_void_p])\n'
+    ' \n'
+    ' if test "x$target_byte_order" = "xG_BIG_ENDIAN"; then\n'
+    '@@ -5119,6 +5169,9 @@\n'
+    ' dnl\n'
+    ' SGEN_DEFINES=\n'
+    ' AC_ARG_WITH(sgen,                    [  --with-sgen=yes,no             Extra Generational GC, default=yes],[buildsgen=$with_sgen],[buildsgen=yes])\n'
+    '+if test "x$enable_ios_jit" = "xyes" -a "x$buildsgen" != "xyes"; then\n'
+    '+   AC_MSG_ERROR([--enable-ios-jit requires --with-sgen=yes])\n'
+    '+fi\n'
+    ' AC_ARG_WITH(sgen-default-concurrent, [  --with-sgen-default-concurrent=yes,no             Use Concurrent GC, default=no],[],[with_sgen_default_concurrent=no])\n'
+    ' if test x$buildsgen = xyes; then\n'
+    '    AC_DEFINE(HAVE_MOVING_COLLECTOR, 1, [Moving collector])\n'
+    '@@ -5511,6 +5564,9 @@\n'
+    ' fi\n'
+    ' \n'
+    ' AC_ARG_ENABLE(icall-tables,[  --disable-icall-tables Disable the runtime lookup of icalls], icall_tables=$enableval, icall_tables=yes)\n'
+    '+if test "x$enable_ios_jit" = "xyes" -a "x$icall_tables" != "xyes"; then\n'
+    '+   AC_MSG_ERROR([--enable-ios-jit requires runtime icall tables])\n'
+    '+fi\n'
+    ' if test "x$icall_tables" = "xno"; then\n'
+    '    AC_DEFINE(DISABLE_ICALL_TABLES, 1, [Icall tables disabled])\n'
+    ' fi\n'
+    'diff --git a/mono/arch/arm64/arm64-codegen.h b/mono/arch/arm64/arm64-codegen.h\n'
+    '--- a/mono/arch/arm64/arm64-codegen.h\n'
+    '+++ b/mono/arch/arm64/arm64-codegen.h\n'
+    '@@ -12,6 +12,10 @@\n'
+    ' #define __ARM64_CODEGEN_H__\n'
+    ' \n'
+    ' #include <glib.h>\n'
+    '+\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#include <mono/utils/mono-codeman.h>\n'
+    '+#endif\n'
+    ' \n'
+    ' enum {\n'
+    ' \tARMREG_R0 = 0,\n'
+    '@@ -123,13 +127,22 @@\n'
+    ' \tARMSIZE_X = 0x3\n'
+    ' } ARMSize;\n'
+    ' \n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#define arm_emit(p, ins) do { guint32 _arm_instruction = (ins); mono_codeman_write_memory ((p), &_arm_instruction, sizeof (_arm_instruction)); (p) += 4; } while (0)\n'
+    '+#else\n'
+    ' #define arm_emit(p, ins) do { *(guint32*)(p) = (ins); (p) += 4; } while (0)\n'
+    '+#endif\n'
+    ' \n'
+    ' /* Overwrite bits [offset,offset+nbits] with value */\n'
+    ' static G_GNUC_UNUSED inline void\n'
+    ' arm_set_ins_bits (void *p, int offset, int nbits, guint32 value)\n'
+    ' {\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tguint32 instruction = (*(guint32*)p & ~(((1 << nbits) - 1) << offset)) | (value << offset);\n'
+    '+\tmono_codeman_write_memory (p, &instruction, sizeof (instruction));\n'
+    '+#else\n'
+    ' \t*(guint32*)p = (*(guint32*)p & ~(((1 << nbits) - 1) << offset)) | (value << offset);\n'
+    '+#endif\n'
+    ' }\n'
+    ' \n'
+    ' /*\n'
+    'diff --git a/mono/metadata/Makefile.am b/mono/metadata/Makefile.am\n'
+    '--- a/mono/metadata/Makefile.am\n'
+    '+++ b/mono/metadata/Makefile.am\n'
+    '@@ -476,6 +476,9 @@\n'
+    ' libmonoruntime_la_LIBADD = libmonoruntime-config.la $(culture_libraries) $(support_libraries) $(shim_libraries)\n'
+    ' \n'
+    ' libmonoruntimesgen_la_SOURCES = $(common_sources) $(icall_tables_sources) $(ilgen_sources) $(gc_dependent_sources) $(sgen_sources)\n'
+    '+if ENABLE_IOS_JIT\n'
+    '+libmonoruntimesgen_la_SOURCES += $(unity_gc_dependent_sources)\n'
+    '+endif\n'
+    ' # Add CXX_ADD_CFLAGS per-library until/unless https://github.com/dotnet/corefx/pull/31342.\n'
+    ' libmonoruntimesgen_la_CFLAGS = $(SGEN_DEFINES) $(GLOBALIZATION_SHIM_DEFINES) @CXX_ADD_CFLAGS@\n'
+    ' libmonoruntimesgen_la_LIBADD = libmonoruntime-config.la $(culture_libraries) $(support_libraries) $(shim_libraries)\n'
+    'diff --git a/mono/metadata/icall-signatures.h b/mono/metadata/icall-signatures.h\n'
+    '--- a/mono/metadata/icall-signatures.h\n'
+    '+++ b/mono/metadata/icall-signatures.h\n'
+    '@@ -57,7 +57,6 @@\n'
+    ' // mono_icall_sig_void_int32\n'
+    ' // mono_icall_sig_void_object\n'
+    ' // mono_icall_sig_void_ptr\n'
+    '-// mono_icall_sig_bool_ptr_ptrref\n'
+    ' // mono_icall_sig_double_double_double\n'
+    ' // mono_icall_sig_float_float_float\n'
+    ' // mono_icall_sig_int_obj_ptr\n'
+    '@@ -94,7 +93,6 @@\n'
+    ' // mono_icall_sig_void_ptr_ptr\n'
+    ' // mono_icall_sig_void_ptr_ptrref\n'
+    ' // mono_icall_sig_void_uint32_ptrref\n'
+    '-// mono_icall_sig_bool_ptr_int32_ptrref\n'
+    ' // mono_icall_sig_int32_int32_ptr_ptrref\n'
+    ' // mono_icall_sig_int32_ptr_int32_ptr\n'
+    ' // mono_icall_sig_int32_ptr_int32_ptrref\n'
+    '@@ -182,7 +180,7 @@\n'
+    ' ICALL_SIG (2, (void, int32))\t\t\t\\\n'
+    ' ICALL_SIG (2, (void, object))\t\t\t\\\n'
+    ' ICALL_SIG (2, (void, ptr))\t\t\t\\\n'
+    '-ICALL_SIG (3, (bool, ptr, ptrref))\t\t\\\n'
+    '+ICALL_SIG (3, (boolean, ptr, ptrref))\t\t\\\n'
+    ' ICALL_SIG (3, (double, double, double))\t\t\\\n'
+    ' ICALL_SIG (3, (float, float, float))\t\t\\\n'
+    ' ICALL_SIG (3, (int, obj, ptr))\t\t\t\\\n'
+    '@@ -220,7 +218,7 @@\n'
+    ' ICALL_SIG (3, (void, ptr, ptr))\t\t\t\\\n'
+    ' ICALL_SIG (3, (void, ptr, ptrref))\t\t\\\n'
+    ' ICALL_SIG (3, (void, uint32, ptrref))\t\t\\\n'
+    '-ICALL_SIG (4, (bool, ptr, int32, ptrref))\t\\\n'
+    '+ICALL_SIG (4, (boolean, ptr, int32, ptrref))\t\\\n'
+    ' ICALL_SIG (4, (int32, int32, ptr, ptrref))\t\\\n'
+    ' ICALL_SIG (4, (int32, ptr, int32, ptr))\t\t\\\n'
+    ' ICALL_SIG (4, (int32, ptr, int32, ptrref))\t\\\n'
+    'diff --git a/mono/metadata/mono-gc.h b/mono/metadata/mono-gc.h\n'
+    '--- a/mono/metadata/mono-gc.h\n'
+    '+++ b/mono/metadata/mono-gc.h\n'
+    '@@ -135,8 +135,8 @@\n'
+    ' /*\n'
+    '  * Only supported under SGen. These two with Sgen will take and release the LOCK_GC\n'
+    '  */\n'
+    '-void mono_gc_stop_world (void);\n'
+    '-void mono_gc_restart_world (void);\n'
+    '+MONO_API void mono_gc_stop_world (void);\n'
+    '+MONO_API void mono_gc_restart_world (void);\n'
+    ' \n'
+    ' MONO_END_DECLS\n'
+    ' \n'
+    'diff --git a/mono/metadata/sgen-mono.c b/mono/metadata/sgen-mono.c\n'
+    '--- a/mono/metadata/sgen-mono.c\n'
+    '+++ b/mono/metadata/sgen-mono.c\n'
+    '@@ -845,6 +845,9 @@\n'
+    ' {\n'
+    ' \tLOCK_GC;\n'
+    ' \tsgen_stop_world (0, FALSE);\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tsgen_finish_concurrent_work ("liveness", FALSE);\n'
+    '+#endif\n'
+    ' }\n'
+    ' \n'
+    ' void\n'
+    'diff --git a/mono/metadata/unity-liveness.c b/mono/metadata/unity-liveness.c\n'
+    '--- a/mono/metadata/unity-liveness.c\n'
+    '+++ b/mono/metadata/unity-liveness.c\n'
+    '@@ -347,7 +347,9 @@\n'
+    ' \tMonoClass *p;\n'
+    ' \tgboolean added_objects = FALSE;\n'
+    ' \n'
+    '+#ifndef DISABLE_REMOTING\n'
+    ' \tif (!isStruct && mono_class_has_parent_fast(klass, mono_defaults.real_proxy_class)) return FALSE;\n'
+    '+#endif\n'
+    ' \n'
+    ' \tg_assert(object);\n'
+    ' \n'
+    '@@ -400,7 +402,9 @@\n'
+    ' \tMonoClass* p;\n'
+    ' \tgboolean added_objects = FALSE;\n'
+    ' \n'
+    '+#ifndef DISABLE_REMOTING\n'
+    ' \tif (!isStruct && mono_class_has_parent_fast(klass, mono_defaults.real_proxy_class)) return FALSE;\n'
+    '+#endif\n'
+    ' \n'
+    ' \tg_assert(object);\n'
+    ' \n'
+    'diff --git a/mono/mini/aot-compiler.c b/mono/mini/aot-compiler.c\n'
+    '--- a/mono/mini/aot-compiler.c\n'
+    '+++ b/mono/mini/aot-compiler.c\n'
+    '@@ -13740,8 +13740,8 @@\n'
+    ' \n'
+    ' #ifndef MONO_ARCH_HAVE_INTERP_ENTRY_TRAMPOLINE\n'
+    ' static MonoMethodSignature * const * const interp_in_static_sigs [] = {\n'
+    '-    &mono_icall_sig_bool_ptr_int32_ptrref,\n'
+    '-    &mono_icall_sig_bool_ptr_ptrref,\n'
+    '+    &mono_icall_sig_boolean_ptr_int32_ptrref,\n'
+    '+    &mono_icall_sig_boolean_ptr_ptrref,\n'
+    '     &mono_icall_sig_int32_int32_ptrref,\n'
+    '     &mono_icall_sig_int32_int32_ptr_ptrref,\n'
+    '     &mono_icall_sig_int32_ptr_int32_ptr,\n'
+    'diff --git a/mono/mini/debugger-agent.c b/mono/mini/debugger-agent.c\n'
+    '--- a/mono/mini/debugger-agent.c\n'
+    '+++ b/mono/mini/debugger-agent.c\n'
+    '@@ -1855,8 +1855,9 @@\n'
+    ' }\n'
+    ' \n'
+    ' static void\n'
+    '-buffer_add_byte (Buffer *buf, guint8 val)\n'
+    '-{\n'
+    '+buffer_add_byte (void *buffer, guint8 val)\n'
+    '+{\n'
+    '+\tBuffer *buf = (Buffer *)buffer;\n'
+    ' \tbuffer_make_room (buf, 1);\n'
+    ' \tbuf->p [0] = val;\n'
+    ' \tbuf->p++;\n'
+    '@@ -1872,8 +1873,9 @@\n'
+    ' }\n'
+    ' \n'
+    ' static void\n'
+    '-buffer_add_int (Buffer *buf, guint32 val)\n'
+    '-{\n'
+    '+buffer_add_int (void *buffer, guint32 val)\n'
+    '+{\n'
+    '+\tBuffer *buf = (Buffer *)buffer;\n'
+    ' \tbuffer_make_room (buf, 4);\n'
+    ' \tbuf->p [0] = (val >> 24) & 0xff;\n'
+    ' \tbuf->p [1] = (val >> 16) & 0xff;\n'
+    '@@ -1890,8 +1892,9 @@\n'
+    ' }\n'
+    ' \n'
+    ' static void\n'
+    '-buffer_add_id (Buffer *buf, int id)\n'
+    '-{\n'
+    '+buffer_add_id (void *buffer, int id)\n'
+    '+{\n'
+    '+\tBuffer *buf = (Buffer *)buffer;\n'
+    ' \tbuffer_add_int (buf, (guint64)id);\n'
+    ' }\n'
+    ' \n'
+    '@@ -1919,8 +1922,9 @@\n'
+    ' }\n'
+    ' \n'
+    ' static void\n'
+    '-buffer_add_string (Buffer *buf, const char *str)\n'
+    '-{\n'
+    '+buffer_add_string (void *buffer, const char *str)\n'
+    '+{\n'
+    '+\tBuffer *buf = (Buffer *)buffer;\n'
+    ' \tint len;\n'
+    ' \n'
+    ' \tif (str == NULL) {\n'
+    'diff --git a/mono/mini/driver.c b/mono/mini/driver.c\n'
+    '--- a/mono/mini/driver.c\n'
+    '+++ b/mono/mini/driver.c\n'
+    '@@ -2936,6 +2936,13 @@\n'
+    ' MonoDomain * \n'
+    ' mono_jit_init_version (const char *domain_name, const char *runtime_version)\n'
+    ' {\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tint error = mono_ios_jit_prepare (0);\n'
+    '+\tif (error) {\n'
+    '+\t\tfprintf (stderr, "iOS JIT preparation failed: %s (%d). Attach StikDebug\'s universal script and check MONO_IOS_JIT_POOL_MB before starting Mono.\\n", g_strerror (error), error);\n'
+    '+\t\treturn NULL;\n'
+    '+\t}\n'
+    '+#endif\n'
+    ' \tMonoDomain *ret = mini_init (domain_name, runtime_version);\n'
+    " \tMONO_ENTER_GC_SAFE_UNBALANCED; //once it is not executing any managed code yet, it's safe to run the gc\n"
+    ' \treturn ret;\n'
+    'diff --git a/mono/mini/jit.h b/mono/mini/jit.h\n'
+    '--- a/mono/mini/jit.h\n'
+    '+++ b/mono/mini/jit.h\n'
+    '@@ -12,6 +12,12 @@\n'
+    ' #include <mono/metadata/appdomain.h>\n'
+    ' \n'
+    ' MONO_BEGIN_DECLS\n'
+    '+\n'
+    '+MONO_API int\n'
+    '+mono_ios_jit_prepare       (size_t capacity);\n'
+    '+\n'
+    '+MONO_API mono_bool\n'
+    '+mono_ios_jit_contains_code (const void *address, size_t size);\n'
+    ' \n'
+    ' MONO_API MONO_RT_EXTERNAL_ONLY MonoDomain * \n'
+    ' mono_jit_init              (const char *file);\n'
+    'diff --git a/mono/mini/mini-arm64.c b/mono/mini/mini-arm64.c\n'
+    '--- a/mono/mini/mini-arm64.c\n'
+    '+++ b/mono/mini/mini-arm64.c\n'
+    '@@ -846,7 +846,8 @@\n'
+    ' \n'
+    ' \tarm_ldrx_lit (code, ARMREG_IP0, code + 8);\n'
+    ' \tarm_brx (code, ARMREG_IP0);\n'
+    '-\t*(guint64*)code = (guint64)target;\n'
+    '+\tguint64 thunk_target = (guint64)target;\n'
+    '+\tmono_codeman_write_memory (code, &thunk_target, sizeof (thunk_target));\n'
+    ' \tcode += sizeof (guint64);\n'
+    ' \n'
+    ' \tmono_arch_flush_icache (p, code - p);\n'
+    '@@ -2046,6 +2047,9 @@\n'
+    ' #if __APPLE__\n'
+    ' G_BEGIN_DECLS\n'
+    ' void sys_icache_invalidate (void *start, size_t len);\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+void sys_dcache_flush (void *start, size_t len);\n'
+    '+#endif\n'
+    ' G_END_DECLS\n'
+    ' #endif\n'
+    ' \n'
+    '@@ -2054,6 +2058,9 @@\n'
+    ' {\n'
+    ' #ifndef MONO_CROSS_COMPILE\n'
+    ' #if __APPLE__\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tsys_dcache_flush (mono_codeman_write_address (code), size);\n'
+    '+#endif\n'
+    ' \tsys_icache_invalidate (code, size);\n'
+    ' #else\n'
+    " \t/* Don't rely on GCC's __clear_cache implementation, as it caches\n"
+    'diff --git a/mono/mini/mini-runtime.c b/mono/mini/mini-runtime.c\n'
+    '--- a/mono/mini/mini-runtime.c\n'
+    '+++ b/mono/mini/mini-runtime.c\n'
+    '@@ -1485,7 +1485,8 @@\n'
+    ' \n'
+    ' \t\tmono_codeman_enable_write ();\n'
+    ' \t\tfor (i = 0; i < patch_info->data.table->table_size; i++) {\n'
+    '-\t\t\tjump_table [i] = code + GPOINTER_TO_INT (patch_info->data.table->table [i]);\n'
+    '+\t\t\tgpointer jump_target = code + GPOINTER_TO_INT (patch_info->data.table->table [i]);\n'
+    '+\t\t\tmono_codeman_write_memory (&jump_table [i], &jump_target, sizeof (jump_target));\n'
+    ' \t\t}\n'
+    ' \t\tmono_codeman_disable_write ();\n'
+    ' \n'
+    'diff --git a/mono/mini/mini.c b/mono/mini/mini.c\n'
+    '--- a/mono/mini/mini.c\n'
+    '+++ b/mono/mini/mini.c\n'
+    '@@ -2116,13 +2116,15 @@\n'
+    ' \t\t\t}\n'
+    ' \n'
+    ' \t\t\tfor (i = 0; i < patch_info->data.table->table_size; i++) {\n'
+    '+\t\t\t\tgpointer target;\n'
+    ' \t\t\t\t/* Might be NULL if the switch is eliminated */\n'
+    ' \t\t\t\tif (patch_info->data.table->table [i]) {\n'
+    ' \t\t\t\t\tg_assert (patch_info->data.table->table [i]->native_offset);\n'
+    '-\t\t\t\t\ttable [i] = GINT_TO_POINTER (patch_info->data.table->table [i]->native_offset);\n'
+    '+\t\t\t\t\ttarget = GINT_TO_POINTER (patch_info->data.table->table [i]->native_offset);\n'
+    ' \t\t\t\t} else {\n'
+    '-\t\t\t\t\ttable [i] = NULL;\n'
+    '+\t\t\t\t\ttarget = NULL;\n'
+    ' \t\t\t\t}\n'
+    '+\t\t\t\tmono_codeman_write_memory (&table [i], &target, sizeof (target));\n'
+    ' \t\t\t}\n'
+    ' \t\t\tpatch_info->data.table->table = (MonoBasicBlock**)table;\n'
+    ' \t\t\tbreak;\n'
+    '@@ -2259,11 +2261,11 @@\n'
+    ' \tif (cfg->thunk_area) {\n'
+    ' \t\tcfg->thunks_offset = cfg->code_size + unwindlen;\n'
+    ' \t\tcfg->thunks = code + cfg->thunks_offset;\n'
+    '-\t\tmemset (cfg->thunks, 0, cfg->thunk_area);\n'
+    '+\t\tmono_codeman_set_memory (cfg->thunks, 0, cfg->thunk_area);\n'
+    ' \t}\n'
+    ' \n'
+    ' \tg_assert (code);\n'
+    '-\tmemcpy (code, cfg->native_code, cfg->code_len);\n'
+    '+\tmono_codeman_write_memory (code, cfg->native_code, cfg->code_len);\n'
+    ' \tg_free (cfg->native_code);\n'
+    ' \tcfg->native_code = code;\n'
+    ' \tcode = cfg->native_code + cfg->code_len;\n'
+    'diff --git a/mono/mini/tramp-arm64.c b/mono/mini/tramp-arm64.c\n'
+    '--- a/mono/mini/tramp-arm64.c\n'
+    '+++ b/mono/mini/tramp-arm64.c\n'
+    '@@ -27,7 +27,11 @@\n'
+    ' #endif\n'
+    ' #include "mono/utils/mono-tls-inline.h"\n'
+    ' \n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#define JUMP_TRAMP_PATCH_OFFSET (8 * 4)\n'
+    '+#else\n'
+    ' #define JUMP_TRAMP_PATCH_OFFSET (7 * 4)\n'
+    '+#endif\n'
+    ' \n'
+    ' void\n'
+    ' mono_arch_patch_callsite (guint8 *method_start, guint8 *code_ptr, guint8 *addr)\n'
+    '@@ -42,7 +46,10 @@\n'
+    ' {\n'
+    ' \tMINI_BEGIN_CODEGEN();\n'
+    ' \tguint8* patch_addr = jump_tramp + JUMP_TRAMP_PATCH_OFFSET;\n'
+    '-\t*(gpointer*)patch_addr = addr;\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tg_assert ((gsize)patch_addr % sizeof (guint64) == 0);\n'
+    '+#endif\n'
+    '+\tmono_codeman_write_memory (patch_addr, &addr, sizeof (addr));\n'
+    ' \tMINI_END_CODEGEN(patch_addr, 8, -1, NULL);\n'
+    ' }\n'
+    ' \n'
+    '@@ -354,11 +361,19 @@\n'
+    ' \t\tarm_movkx(code, ARMREG_IP1, (imm >> 32) & 0xffff, 32);\n'
+    ' \t\tarm_movkx(code, ARMREG_IP1, (imm >> 48) & 0xffff, 48);\n'
+    ' \n'
+    '-\t\tarm_adrx(code, ARMREG_IP0, code + (3 * 4));\n'
+    '+\t\tarm_adrx(code, ARMREG_IP0, buf + JUMP_TRAMP_PATCH_OFFSET);\n'
+    ' \t\tarm_ldrx(code, ARMREG_IP0, ARMREG_IP0, 0);\n'
+    ' \t\tcode = mono_arm_emit_brx(code, ARMREG_IP0);\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\t\tarm_nop (code);\n'
+    '+\t\tg_assert ((gsize)code % sizeof (guint64) == 0);\n'
+    '+#endif\n'
+    ' \t\tg_assert(code - buf == JUMP_TRAMP_PATCH_OFFSET);\n'
+    '-\t\t*(guint64*)code = (guint64)(gsize)tramp;\n'
+    '+\t\tguint64 trampoline_target = (guint64)(gsize)tramp;\n'
+    '+\t\tmono_codeman_write_memory (code, &trampoline_target, sizeof (trampoline_target));\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\t\tcode += sizeof (guint64);\n'
+    '+#endif\n'
+    ' \t}\n'
+    ' \telse {\n'
+    ' \t\tcode = mono_arm_emit_imm64(code, ARMREG_IP1, (guint64)arg1);\n'
+    'diff --git a/mono/utils/Makefile.am b/mono/utils/Makefile.am\n'
+    '--- a/mono/utils/Makefile.am\n'
+    '+++ b/mono/utils/Makefile.am\n'
+    '@@ -325,6 +325,11 @@\n'
+    ' libmonoutils_la_CFLAGS = $(JEMALLOC_CFLAGS) @CXX_ADD_CFLAGS@\n'
+    ' libmonoutils_la_LDFLAGS = $(JEMALLOC_LDFLAGS)\n'
+    ' \n'
+    '+if ENABLE_IOS_JIT\n'
+    '+libmonoutils_la_SOURCES += ../Scripts/mono-ios-jit.cpp ../Scripts/mono-ios-jit.h\n'
+    '+libmonoutils_la_CXXFLAGS = $(JEMALLOC_CFLAGS) $(CXXFLAGS_COMMON)\n'
+    '+endif\n'
+    '+\n'
+    ' endif # !ENABLE_MSVC_ONLY\n'
+    ' \n'
+    ' libmonoutilsincludedir = $(includedir)/mono-$(API_VER)/mono/utils\n'
+    'diff --git a/mono/utils/mono-codeman.c b/mono/utils/mono-codeman.c\n'
+    '--- a/mono/utils/mono-codeman.c\n'
+    '+++ b/mono/utils/mono-codeman.c\n'
+    '@@ -19,6 +19,12 @@\n'
+    ' \n'
+    ' #include "mono-codeman.h"\n'
+    ' #include "mono-mmap.h"\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+#include <errno.h>\n'
+    '+#include <libkern/OSCacheControl.h>\n'
+    '+#include <mono/Scripts/mono-ios-jit.h>\n'
+    '+#include "mono-mmap-internals.h"\n'
+    '+#endif\n'
+    ' #include "mono-counters.h"\n'
+    ' #if _WIN32\n'
+    ' static void* mono_code_manager_heap;\n'
+    '@@ -112,6 +118,23 @@\n'
+    ' static void*\n'
+    ' codechunk_valloc (void *preferred, guint32 size)\n'
+    ' {\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tif (!mono_valloc_can_alloc (size)) {\n'
+    '+\t\tg_error ("iOS JIT code allocation of %u bytes exceeds the runtime memory limit", size);\n'
+    '+\t\treturn NULL;\n'
+    '+\t}\n'
+    '+\tvoid *ptr = mono_ios_jit_alloc (size);\n'
+    '+\tif (!ptr) {\n'
+    '+\t\tint allocation_error = errno;\n'
+    '+\t\tif (allocation_error == EPERM)\n'
+    '+\t\t\tg_error ("iOS JIT requires mono_ios_jit_prepare with the StikDebug universal script attached before Mono initialization");\n'
+    '+\t\telse\n'
+    '+\t\t\tg_error ("iOS JIT code allocation of %u bytes failed: %s. Check the prepared code-pool capacity and available memory", size, g_strerror (allocation_error));\n'
+    '+\t\treturn NULL;\n'
+    '+\t}\n'
+    '+\tmono_account_mem (MONO_MEM_ACCOUNT_CODE, size);\n'
+    '+\treturn ptr;\n'
+    '+#else\n'
+    ' \tvoid *ptr;\n'
+    ' \tGSList *freelist;\n'
+    ' \n'
+    '@@ -139,11 +162,16 @@\n'
+    ' \t}\n'
+    ' \tmono_os_mutex_unlock (&valloc_mutex);\n'
+    ' \treturn ptr;\n'
+    '+#endif\n'
+    ' }\n'
+    ' \n'
+    ' static void\n'
+    ' codechunk_vfree (void *ptr, guint32 size)\n'
+    ' {\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tmono_ios_jit_free (ptr, size);\n'
+    '+\tmono_account_mem (MONO_MEM_ACCOUNT_CODE, -(ssize_t)size);\n'
+    '+#else\n'
+    ' \tGSList *freelist;\n'
+    ' \n'
+    ' \tmono_os_mutex_lock (&valloc_mutex);\n'
+    '@@ -155,6 +183,7 @@\n'
+    ' \t\tmono_vfree (ptr, size, MONO_MEM_ACCOUNT_CODE);\n'
+    ' \t}\n'
+    ' \tmono_os_mutex_unlock (&valloc_mutex);\n'
+    '+#endif\n'
+    ' }\t\t\n'
+    ' \n'
+    ' static void\n'
+    '@@ -192,6 +221,9 @@\n'
+    ' mono_code_manager_cleanup (void)\n'
+    ' {\n'
+    ' \tcodechunk_cleanup ();\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tmono_ios_jit_cleanup ();\n'
+    '+#endif\n'
+    ' }\n'
+    ' \n'
+    ' void\n'
+    '@@ -204,7 +236,9 @@\n'
+    ' int\n'
+    ' mono_codeman_allocation_type (MonoCodeManager const *cman)\n'
+    ' {\n'
+    '-#ifdef FORCE_MALLOC\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\treturn CODE_FLAG_MMAP;\n'
+    '+#elif defined(FORCE_MALLOC)\n'
+    ' \treturn CODE_FLAG_MALLOC;\n'
+    ' #else\n'
+    ' \treturn cman->dynamic ? CODE_FLAG_MALLOC : CODE_FLAG_MMAP;\n'
+    '@@ -355,6 +389,16 @@\n'
+    ' \tg_free (cman);\n'
+    ' }\n'
+    ' \n'
+    '+static void\n'
+    '+invalidate_code_chunk (CodeChunk *chunk, int fill_value)\n'
+    '+{\n'
+    '+\tmono_codeman_set_memory (chunk->data, fill_value, chunk->size);\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\tsys_dcache_flush (mono_codeman_write_address (chunk->data), chunk->size);\n'
+    '+\tsys_icache_invalidate (chunk->data, chunk->size);\n'
+    '+#endif\n'
+    '+}\n'
+    '+\n'
+    ' /**\n'
+    '  * mono_code_manager_invalidate:\n'
+    '  * \\param cman a code manager\n'
+    '@@ -374,9 +418,9 @@\n'
+    ' #endif\n'
+    ' \n'
+    ' \tfor (chunk = cman->current; chunk; chunk = chunk->next)\n'
+    '-\t\tmemset (chunk->data, fill_value, chunk->size);\n'
+    '+\t\tinvalidate_code_chunk (chunk, fill_value);\n'
+    ' \tfor (chunk = cman->full; chunk; chunk = chunk->next)\n'
+    '-\t\tmemset (chunk->data, fill_value, chunk->size);\n'
+    '+\t\tinvalidate_code_chunk (chunk, fill_value);\n'
+    ' }\n'
+    ' \n'
+    ' /**\n'
+    '@@ -502,7 +546,11 @@\n'
+    ' \t\tif (flags == CODE_FLAG_MALLOC)\n'
+    ' \t\t\tmono_codeman_free (ptr);\n'
+    ' \t\telse\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+\t\t\tcodechunk_vfree (ptr, chunk_size);\n'
+    '+#else\n'
+    ' \t\t\tmono_vfree (ptr, chunk_size, MONO_MEM_ACCOUNT_CODE);\n'
+    '+#endif\n'
+    ' \t\treturn NULL;\n'
+    ' \t}\n'
+    ' \tchunk->next = NULL;\n'
+    '@@ -696,3 +744,23 @@\n'
+    ' \t}\n'
+    ' #endif\n'
+    ' }\n'
+    '+\n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+void*\n'
+    '+mono_codeman_write_address (void *address)\n'
+    '+{\n'
+    '+\treturn mono_ios_jit_write_address (address);\n'
+    '+}\n'
+    '+\n'
+    '+void\n'
+    '+mono_codeman_write_memory (void *address, const void *source, size_t size)\n'
+    '+{\n'
+    '+\tmono_ios_jit_write_memory (address, source, size);\n'
+    '+}\n'
+    '+\n'
+    '+void\n'
+    '+mono_codeman_set_memory (void *address, int value, size_t size)\n'
+    '+{\n'
+    '+\tmono_ios_jit_set_memory (address, value, size);\n'
+    '+}\n'
+    '+#endif\n'
+    'diff --git a/mono/utils/mono-codeman.h b/mono/utils/mono-codeman.h\n'
+    '--- a/mono/utils/mono-codeman.h\n'
+    '+++ b/mono/utils/mono-codeman.h\n'
+    '@@ -44,5 +44,15 @@\n'
+    ' void mono_codeman_enable_write (void);\n'
+    ' void mono_codeman_disable_write (void);\n'
+    ' \n'
+    '+#ifdef ENABLE_IOS_JIT\n'
+    '+void *mono_codeman_write_address (void *address);\n'
+    '+void mono_codeman_write_memory (void *address, const void *source, size_t size);\n'
+    '+void mono_codeman_set_memory (void *address, int value, size_t size);\n'
+    '+#else\n'
+    '+#define mono_codeman_write_address(address) (address)\n'
+    '+#define mono_codeman_write_memory(address, source, size) memcpy ((address), (source), (size))\n'
+    '+#define mono_codeman_set_memory(address, value, size) memset ((address), (value), (size))\n'
+    '+#endif\n'
+    '+\n'
+    ' #endif /* __MONO_CODEMAN_H__ */\n'
+    ' \n'
+    'diff --git a/mono/utils/mono-sigcontext.h b/mono/utils/mono-sigcontext.h\n'
+    '--- a/mono/utils/mono-sigcontext.h\n'
+    '+++ b/mono/utils/mono-sigcontext.h\n'
+    '@@ -495,7 +495,7 @@\n'
+    ' \n'
+    ' #ifndef UCONTEXT_REG_SET_PC\n'
+    ' #define UCONTEXT_REG_SET_PC(ctx, val) do { \\\n'
+    '-\tUCONTEXT_REG_PC (ctx) = (val); \\\n'
+    '+\tUCONTEXT_REG_PC (ctx) = (host_mgreg_t)(val); \\\n'
+    ' \t } while (0)\n'
+    ' #define UCONTEXT_REG_SET_SP(ctx, val) do { \\\n'
+    ' \tUCONTEXT_REG_SP (ctx) = (val); \\\n'
+    'diff --git a/mono/utils/mono-threads-mach-helper.c b/mono/utils/mono-threads-mach-helper.c\n'
+    '--- a/mono/utils/mono-threads-mach-helper.c\n'
+    '+++ b/mono/utils/mono-threads-mach-helper.c\n'
+    '@@ -57,13 +57,7 @@\n'
+    ' static void\n'
+    ' mono_dead_letter_dealloc (id self, SEL _cmd)\n'
+    ' {\n'
+    '-\tstruct objc_super super;\n'
+    '-\tsuper.receiver = self;\n'
+    '-#if !defined(__cplusplus) && !__OBJC2__\n'
+    '-\tsuper.class = nsobject;\n'
+    '-#else\n'
+    '-\tsuper.super_class = nsobject;\n'
+    '-#endif\n'
+    '+\tstruct objc_super super = { self, nsobject };\n'
+    ' \tvoid (*objc_msgSendSuper_op)(struct objc_super *, SEL) = (void (*)(struct objc_super *, SEL)) objc_msgSendSuper;\n'
+    ' \tobjc_msgSendSuper_op (&super, dealloc);\n'
+    ' \n'
+    'diff --git a/sdks/builds/ios.mk b/sdks/builds/ios.mk\n'
+    '--- a/sdks/builds/ios.mk\n'
+    '+++ b/sdks/builds/ios.mk\n'
+    '@@ -123,6 +123,13 @@\n'
+    ' \t--disable-cooperative-suspend \\\n'
+    ' \t--disable-hybrid-suspend \\\n'
+    ' \t--disable-crash-reporting\n'
+    '+\n'
+    '+ifeq ($(1),target64)\n'
+    '+_ios-$(1)_CONFIGURE_FLAGS := $$(filter-out --disable-icall-tables --enable-minimal=% --with-lazy-gc-thread-creation=yes,$$(_ios-$(1)_CONFIGURE_FLAGS)) \\\n'
+    '+\t--enable-minimal=ssa,com,interpreter,portability,assembly_remapping,attach,verifier,full_messages,appdomains,security,sgen_remset,sgen_marksweep_par,sgen_marksweep_fixed,sgen_marksweep_fixed_par,sgen_copying,logging,remoting,shared_perfcounters,gac \\\n'
+    '+\t--enable-ios-jit --enable-unity-define --enable-icall-tables --with-sgen=yes \\\n'
+    '+\t--disable-llvm --disable-llvm-runtime --with-bitcode=no\n'
+    '+endif\n'
+    ' \n'
+    ' .stamp-ios-$(1)-toolchain:\n'
+    ' \ttouch $$@\n'
 )
 
-# A JIT runtime resolves icalls by name at run time, so the icall
-# tables must be linked into libmonosgen instead of being split out
-# into libmono-icall-table.a.
-edit(ios_mk, "\t--disable-icall-tables \\\n", "")
 
-# With this flag the embedding host has to create the GC threads
-# itself, as Xamarin.iOS does. Let the runtime do it.
-edit(ios_mk, "\t--with-lazy-gc-thread-creation=yes \\\n", "")
+def build_patch():
+    source_directory = Path(__file__).resolve().parent
+    patch = PATCH
+    for name in ASSET_NAMES:
+        source = (source_directory / name).read_text(encoding="utf-8")
+        if not source:
+            raise ValueError(f"Required source file is empty: {name}")
+        if not source.endswith("\n"):
+            source += "\n"
+        destination = f"mono/Scripts/{name}"
+        patch += f"diff --git a/{destination} b/{destination}\nnew file mode 100644\n"
+        patch += "".join(unified_diff(
+            [], source.splitlines(keepends=True),
+            fromfile="/dev/null", tofile=f"b/{destination}",
+        ))
+    return patch
 
-# unity-liveness.c is already listed in unity_gc_dependent_sources,
-# but this branch only adds that source list to the Boehm runtime.
-# Add it to SGen too.
-edit(
-  "mono/metadata/Makefile.am",
-  "libmonoruntimesgen_la_SOURCES = "
-  "$(common_sources) $(icall_tables_sources) "
-  "$(ilgen_sources) $(gc_dependent_sources) $(sgen_sources)",
-  "libmonoruntimesgen_la_SOURCES = "
-  "$(common_sources) $(icall_tables_sources) "
-  "$(ilgen_sources) $(gc_dependent_sources) "
-  "$(unity_gc_dependent_sources) $(sgen_sources)",
-)
 
-# ---------------------------------------------------------------
-# Code the current SDK and compiler reject
-# ---------------------------------------------------------------
+def run_git(checkout, *arguments, patch=None):
+    return subprocess.run(
+        ["git", "-C", str(checkout), *arguments],
+        input=patch.encode("utf-8") if patch is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
-# asl_log () is deprecated since iOS 10, which is an error in the
-# runtime now that the deployment target is past that. Log through
-# os_log () instead, as this file already does on watchOS and
-# Mac Catalyst.
-edit(
-  "mono/utils/mono-log-darwin.c",
-  "|| defined(HOST_MACCAT)\n",
-  "|| defined(HOST_MACCAT) || (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 100000)\n",
-)
-edit("mono/utils/mono-log-darwin.c", "%s", "%{public}s")
-# The second field of struct objc_super is called class or
-# super_class depending on the SDK, and the test used here to tell
-# them apart picks the wrong one with the current SDK. Fill the
-# struct by position instead.
-edit(
-  "mono/utils/mono-threads-mach-helper.c",
-  "\tstruct objc_super super;\n"
-  "\tsuper.receiver = self;\n"
-  "#if !defined(__cplusplus) && !__OBJC2__\n"
-  "\tsuper.class = nsobject;\n"
-  "#else\n"
-  "\tsuper.super_class = nsobject;\n"
-  "#endif\n",
-  "\tstruct objc_super super = { self, nsobject };\n",
-)
 
-# getsectbynamefromheader_64 () is deprecated since iOS 16, an
-# error for the same reason as asl_log (). It still exists, and
-# its replacement returns addresses with the slide applied where
-# this one does not, so keep it and silence the warning for this
-# call.
-edit(
-  "mono/metadata/w32process-unix-osx.c",
-  "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n",
-  "#pragma clang diagnostic push\n"
-  '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
-  "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n"
-  "#pragma clang diagnostic pop\n",
-)
+def checked_checkout(path):
+    checkout = path.resolve(strict=True)
+    if not checkout.is_dir():
+        raise ValueError("Checkout must be a directory.")
+    result = run_git(checkout, "rev-parse", "--show-toplevel")
+    if result.returncode:
+        raise ValueError("Checkout must be an existing Git checkout of Unity Mono.")
+    git_root = Path(result.stdout.decode("utf-8").strip()).resolve(strict=True)
+    if checkout != git_root:
+        raise ValueError("Run from the Mono checkout root, or pass its path.")
+    for name in PATCHED_PATHS:
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"Invalid patch destination: {name}")
+        destination = checkout / relative
+        if destination.resolve() != destination:
+            raise ValueError(f"Patch destination uses a redirected path: {name}")
+        parent = destination
+        while parent != checkout:
+            if parent.is_symlink():
+                raise ValueError(f"Patch destination uses a symbolic link: {name}")
+            parent = parent.parent
+        if destination.exists() and not destination.is_file():
+            raise ValueError(f"Patch destination is not a file: {name}")
+    return checkout
 
-# An SDK header includes <stdbool.h>, which makes bool a macro, so
-# the two icall signatures spelled with it get _Bool pasted into
-# their names. Spell them with boolean, which the signature types
-# already accept.
-for sig in ("3, (bool, ptr, ptrref)", "4, (bool, ptr, int32, ptrref)"):
-  edit(
-    "mono/metadata/icall-signatures.h",
-    f"ICALL_SIG ({sig})",
-    f"ICALL_SIG ({sig.replace('bool', 'boolean')})",
-  )
-for name in ("mono_icall_sig_bool_ptr_int32_ptrref", "mono_icall_sig_bool_ptr_ptrref"):
-  edit(
-    "mono/mini/aot-compiler.c",
-    f"&{name},",
-    f"&{name.replace('_bool_', '_boolean_')},",
-  )
 
-# Storing a pointer into an integer and assigning a function to
-# a pointer of another type were warnings and are errors now.
-edit(
-  "mono/utils/mono-sigcontext.h",
-  "\tUCONTEXT_REG_PC (ctx) = (val); \\\n",
-  "\tUCONTEXT_REG_PC (ctx) = (host_mgreg_t)(val); \\\n",
-)
-edit(
-  "mono/mini/debugger-agent.c",
-  "\tcallbacks->buffer_add_byte = buffer_add_byte;\n"
-  "\tcallbacks->buffer_add_int = buffer_add_int;\n"
-  "\tcallbacks->buffer_add_id = buffer_add_id;\n"
-  "\tcallbacks->buffer_add_string = buffer_add_string;\n",
-  "\tcallbacks->buffer_add_byte = (void (*)(void *, guint8))buffer_add_byte;\n"
-  "\tcallbacks->buffer_add_int = (void (*)(void *, guint32))buffer_add_int;\n"
-  "\tcallbacks->buffer_add_id = (void (*)(void *, int))buffer_add_id;\n"
-  "\tcallbacks->buffer_add_string = (void (*)(void *, const char *))buffer_add_string;\n",
-)
+def apply_changes(checkout, check_only, patch):
+    forward = run_git(checkout, "apply", "--check", "--whitespace=nowarn", "-", patch=patch)
+    if forward.returncode:
+        reverse = run_git(checkout, "apply", "--reverse", "--check", "--whitespace=nowarn", "-", patch=patch)
+        if reverse.returncode == 0:
+            print("SGen iOS JIT and Unity liveness changes already applied.")
+            return 0
+        sys.stderr.write("Mono source differs from the expected base or is partially patched. No changes applied.\n")
+        sys.stderr.write(forward.stderr.decode("utf-8", errors="replace"))
+        return 1
+    if check_only:
+        print(f"Ready to update {len(PATCHED_PATHS)} files for SGen iOS JIT and Unity liveness.")
+        return 0
+    applied = run_git(checkout, "apply", "--whitespace=nowarn", "-", patch=patch)
+    if applied.returncode:
+        sys.stderr.write(applied.stderr.decode("utf-8", errors="replace"))
+        return applied.returncode
+    print(f"Applied SGen iOS JIT and Unity liveness changes to {checkout}.")
+    print(f"Added C++ sources: {checkout / 'mono' / 'Scripts'}")
+    return 0
 
-# ---------------------------------------------------------------
-# JIT code memory (see mono/utils/mono-ios-jit.h)
-# ---------------------------------------------------------------
-codeman = "mono/utils/mono-codeman.c"
-edit(
-  codeman,
-  """#if defined(HAVE_PTHREAD_JIT_WRITE_PROTECT_NP) && defined(TARGET_OSX)
-	if (__builtin_available (macOS 11, *)) {""",
-  """#if defined(TARGET_IOS)
-	if (true) {g_message("processing JIT!");"""
-)
-insert(codeman, "#include <pthread.h>\n")
-"""
-# Every instruction is emitted through arm_emit (). The header is
-# included by all of mono/mini, which also brings in the memcpy () and
-# memset () wrappers.
-codegen = Path("mono/arch/arm64/arm64-codegen.h")
-edit(
-  codegen,
-  "#define arm_emit(p, ins) do { *(guint32*)(p) = (ins); (p) += 4; } while (0)",
-  "#include <mono/utils/mono-ios-jit.h>\n"
-  "\n"
-  "#define arm_emit(p, ins) do { *(guint32*)MONO_JIT_W (p) = (ins); (p) += 4; } while (0)",
-)
 
-# The helpers of that header which patch an instruction in place.
-store = r"\*\((guint32|guint64|gpointer)\s*\*\)\s*\(?\s*(\w+)\s*\)?\s*=(?!=)"
-text, count = re.subn(store, r"*(\1*)MONO_JIT_W (\2) =", codegen.read_text())
-unpatched = [
-  line
-  for line in text.splitlines()
-  if re.search(r"\*\s*\([^()]*\*\s*\)\s*\(?\s*\w+\s*\)?\s*(\[[^\]]*\]\s*)?=(?!=)", line)
-]
-if count < 1 or unpatched:
-  raise RuntimeError(
-    f"{codegen}: {count} in-place stores patched, left: {unpatched!r}"
-  )
-codegen.write_text(text)
+def main():
+    parser = argparse.ArgumentParser(
+        description=f"Patch original Unity Mono {BASE_BRANCH} sources, based on {BASE_REVISION}, for ARM64 iOS SGen JIT with Unity liveness."
+    )
+    parser.add_argument("checkout", nargs="?", type=Path, default=Path.cwd())
+    parser.add_argument("--check", action="store_true", help="Validate applicability without changing files.")
+    arguments = parser.parse_args()
+    try:
+        patch = build_patch()
+        checkout = checked_checkout(arguments.checkout)
+        return apply_changes(checkout, arguments.check, patch)
+    except (OSError, ValueError, UnicodeError) as error:
+        sys.stderr.write(f"Cannot prepare Mono: {error}\n")
+        return 1
 
-# The remaining places which store data into code memory.
-edit(
-  "mono/mini/mini-arm64.c",
-  "\t*(guint64*)code = (guint64)target;\n",
-  "\t*(guint64*)MONO_JIT_W (code) = (guint64)target;\n",
-)
-edit(
-  "mono/mini/tramp-arm64.c",
-  "\t*(gpointer*)patch_addr = addr;\n",
-  "\t*(gpointer*)MONO_JIT_W (patch_addr) = addr;\n",
-)
-edit(
-  "mono/mini/tramp-arm64.c",
-  "\t\t*(guint64*)code = (guint64)(gsize)tramp;\n",
-  "\t\t*(guint64*)MONO_JIT_W (code) = (guint64)(gsize)tramp;\n",
-)
-edit(
-  "mono/mini/mini-runtime.c",
-  "\t\t\tjump_table [i] = code + ",
-  "\t\t\t((gpointer *)MONO_JIT_W (jump_table)) [i] = code + ",
-)
-# These tables are only read back, so use the writable address for good.
-for reserve in (
-    "mono_code_manager_reserve (cfg->dynamic_info->code_mp, ",
-    "mono_mem_manager_code_reserve (cfg->mem_manager, ",
-):
-  call = reserve + "sizeof (gpointer) * patch_info->data.table->table_size)"
-  edit(
-    "mono/mini/mini.c",
-    f"table = (void **){call};",
-    f"table = (void **)MONO_JIT_W ({call});",
-  )
-edit(
-  codeman,
-  "#include <mono/utils/mono-tls.h>\n",
-  "#include <mono/utils/mono-tls.h>\n"
-  "\n"
-  "#define MONO_IOS_JIT_IMPLEMENTATION\n"
-  "#include <mono/utils/mono-ios-jit.h>\n",
-)
-edit(
-  codeman,
-  "static void*\ncodechunk_valloc (void *preferred, guint32 size)\n{\n",
-  "#ifdef MONO_IOS_JIT_POOL\n"
-  "\n"
-  "static void*\n"
-  "codechunk_valloc (void *preferred, guint32 size)\n"
-  "{\n"
-  "\treturn ios_jit_alloc (size);\n"
-  "}\n"
-  "\n"
-  "static void\n"
-  "codechunk_vfree (void *ptr, guint32 size)\n"
-  "{\n"
-  "\tios_jit_free (ptr, size);\n"
-  "}\n"
-  "\n"
-  "static void\n"
-  "codechunk_cleanup (void)\n"
-  "{\n"
-  "}\n"
-  "\n"
-  "#else\n"
-  "\n"
-  "static void*\ncodechunk_valloc (void *preferred, guint32 size)\n{\n",
-)
-edit(
-  codeman,
-  "\tg_hash_table_destroy (valloc_freelists);\n}\n",
-  "\tg_hash_table_destroy (valloc_freelists);\n}\n"
-  "\n"
-  "#endif /* MONO_IOS_JIT_POOL */\n",
-)
-edit(
-  codeman,
-  "\tgpointer res = dlmemalign (MIN_ALIGN, n);\n",
-  "#ifdef MONO_IOS_JIT_POOL\n"
-  "\tgpointer res = ios_jit_malloc (n);\n"
-  "#else\n"
-  "\tgpointer res = dlmemalign (MIN_ALIGN, n);\n"
-  "#endif\n",
-)
-edit(
-  codeman,
-  "\tdlfree (p);\n",
-  "#ifdef MONO_IOS_JIT_POOL\n"
-  "\tios_jit_mfree (p);\n"
-  "#else\n"
-  "\tdlfree (p);\n"
-  "#endif\n",
-)
-"""
+
+if __name__ == "__main__":
+    sys.exit(main())
