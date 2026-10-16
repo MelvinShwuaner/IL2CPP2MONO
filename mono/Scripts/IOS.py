@@ -23,7 +23,8 @@ edit(
     "\tconst struct section_64 *sec = getsectbynamefromheader_64 (hdr64, SEG_DATA, SECT_DATA);\n"
     "#pragma clang diagnostic pop\n",
 )
-edit("mono/metadata/icall-def.h", """ICALL(REMSER_0, "IsTransparentProxy", ves_icall_IsTransparentProxy)""", "") #cheap but works
+edit("mono/metadata/icall-def.h", """ICALL_TYPE(REMSER, "System.Runtime.Remoting.RemotingServices", REMSER_0)
+ICALL(REMSER_0, "IsTransparentProxy", ves_icall_IsTransparentProxy)""", "") #cheap but works
 BASE_REVISION = "b8eb56fab45dd52845fabba7b7ddc9a80b2b0498"
 BASE_BRANCH = "unity-2022.3-mbe"
 ASSET_NAMES = ("mono-ios-jit.cpp", "mono-ios-jit.h")
