@@ -56,42 +56,12 @@ jobs:
         shell: bash
         run: |
           set -e
-
-          cp my-repo/mono/Scripts/IOS-JIT.cpp mono/utils/mono-ios-jit.h
           
           python3 my-repo/mono/Scripts/IOS.py
-
-          echo "===== ios.mk device configuration ====="
-          grep -nE 'enable-minimal|icall-tables|lazy-gc|enable-boehm|disable-boehm' \
-            sdks/builds/ios.mk
-
-          echo "===== SGen liveness configuration ====="
-          grep -n -A2 -B1 \
-            'libmonoruntimesgen_la_SOURCES' \
-            mono/metadata/Makefile.am
-
-          echo "===== JIT code memory changes ====="
-          git --no-pager diff --stat
-          git --no-pager diff -- mono/arch/arm64/arm64-codegen.h
 
       - name: Build Unity Mono ARM64 iOS
         shell: bash
         run: |
-          set -o pipefail
-
-          # sdks/builds/Makefile refuses to start below 1024 file
-          # descriptors; the macOS default is 256.
-          ulimit -n 4096
-
-          # IOS_VERSION is left unset on purpose: ios.mk then builds
-          # against the unversioned iPhoneOS.sdk of the selected Xcode.
-          #
-          # The AOT compiler is built along with the JIT and must not
-          # call system (), which the iOS SDK forbids. The simulator
-          # targets of ios.mk, which are JIT runtimes, set the same.
-          #
-          # -k keeps going after an error, so that one run reports every
-          # file that fails to compile instead of only the first one.
           make -C sdks/builds \
             ENABLE_IOS=1 \
             CONFIGURATION=release \
@@ -162,26 +132,6 @@ jobs:
           lipo -info "$DYLIB"
           vtool -show-build "$DYLIB"
           otool -L "$DYLIB"
-
-          echo "===== Unity liveness and JIT region symbols ====="
-          nm -gU "$DYLIB" > mono-symbols.txt
-          grep '_mono_unity_liveness_' mono-symbols.txt
-          grep '_mono_ios_jit_' mono-symbols.txt
-
-          # libtool links with -undefined dynamic_lookup, so a symbol
-          # that no library provides does not fail the link: it fails
-          # when the dylib is loaded on the device instead.
-          echo "===== symbols no linked library provides ====="
-          nm -m -u "$DYLIB" \
-            | grep 'dynamically looked up' \
-            > mono-unresolved-symbols.txt \
-            || true
-          if [ -s mono-unresolved-symbols.txt ]; then
-            cat mono-unresolved-symbols.txt
-            echo "::warning::libmonosgen-2.0.dylib has unresolved symbols, listed in mono-unresolved-symbols.txt"
-          else
-            echo "none"
-          fi
 
       - name: Upload ARM64 Mono build
         if: success()
