@@ -105,6 +105,8 @@ jobs:
         if: success()
         shell: bash
         run: |
+          make -C sdks/builds/ios-target64-release/data install-data
+          
           CONFIG_H=sdks/builds/ios-target64-release/config.h
           OUT=sdks/out/ios-target64-release
           DYLIB="$OUT/lib/libmonosgen-2.0.dylib"
