@@ -24,6 +24,11 @@
 #define MONO_IOS_JIT_DEFAULT_POOL_MB 128u
 #define MONO_IOS_JIT_MOVZ_W0 0x52800000u
 #define MONO_IOS_JIT_RET 0xd65f03c0u
+#define MONO_IOS_JIT_CS_OPS_STATUS 0u
+#define MONO_IOS_JIT_CS_DEBUGGED 0x10000000u
+#define MONO_IOS_JIT_MONITOR_NONE 0u
+#define MONO_IOS_JIT_MONITOR_PPL 1u
+#define MONO_IOS_JIT_MONITOR_TXM 2u
 
 typedef struct _MonoIosJitRange MonoIosJitRange;
 typedef struct _MonoIosJitArena MonoIosJitArena;
@@ -47,11 +52,15 @@ static pthread_mutex_t arena_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 extern "C" {
 
+int csops (pid_t pid, unsigned int operations, void *address, size_t size);
+
 static MonoIosJitArena *find_arena (void *address);
 static void write_arena_memory (MonoIosJitArena *arena, void *address, const void *source, size_t size, int fill_value, int is_fill);
 static int round_size (size_t size, size_t alignment, size_t *rounded_size);
 static int startup_capacity (size_t *capacity);
 static int debugger_status (int *is_attached);
+static int debugger_protocol_required (int *is_required);
+static int code_signing_status (int *is_debugged);
 static int verify_protection (void *address, size_t size, vm_prot_t protection, const char *stage);
 static int verify_arena (MonoIosJitArena *arena, size_t page_size);
 static int execute_probe (void *address);
@@ -88,6 +97,8 @@ mono_ios_jit_prepare (size_t capacity)
 	kern_return_t result;
 	int error;
 	int is_attached;
+	int is_debugged;
+	int use_debugger_protocol;
 	int page_size = getpagesize ();
 	int use_startup_pool = capacity == 0;
 
@@ -123,25 +134,51 @@ mono_ios_jit_prepare (size_t capacity)
 		pthread_mutex_unlock (&arena_mutex);
 		return 0;
 	}
-	error = debugger_status (&is_attached);
-	if (error) {
-		report_prepare_error ("debugger attach check", error, KERN_SUCCESS, "sysctl process status");
+	error = debugger_protocol_required (&use_debugger_protocol);
+	if (error)
 		goto fail;
+	if (use_debugger_protocol) {
+		error = debugger_status (&is_attached);
+		if (error) {
+			report_prepare_error ("debugger attach check", error, KERN_SUCCESS, "sysctl process status");
+			goto fail;
+		}
+		if (!is_attached) {
+			error = report_prepare_error ("debugger attach check", EPERM, KERN_SUCCESS, "P_TRACED is unset; attach StikDebug's universal script before Mono initialization");
+			goto fail;
+		}
+		arena->execute_address = prepare_region (NULL, capacity);
+		if (!arena->execute_address) {
+			error = report_prepare_error ("StikDebug prepare_region", ENOMEM, KERN_SUCCESS, "debugger protocol returned NULL");
+			goto detach;
+		}
+	} else {
+		vm_address_t execute_address = 0;
+		error = code_signing_status (&is_debugged);
+		if (error) {
+			report_prepare_error ("code-signing status", error, KERN_SUCCESS, "csops CS_OPS_STATUS");
+			goto fail;
+		}
+		if (!is_debugged) {
+			error = report_prepare_error ("code-signing status", EPERM, KERN_SUCCESS, "CS_DEBUGGED is unset; enable ordinary debugger JIT before Mono initialization");
+			goto fail;
+		}
+		result = vm_allocate (mach_task_self (), &execute_address, capacity, VM_FLAGS_ANYWHERE);
+		if (result != KERN_SUCCESS) {
+			error = report_prepare_error ("vm_allocate RX arena", mach_error_number (result), result);
+			goto fail;
+		}
+		arena->execute_address = (void *)execute_address;
+		result = vm_protect (mach_task_self (), execute_address, capacity, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+		if (result != KERN_SUCCESS) {
+			error = report_prepare_error ("vm_protect RX arena", mach_error_number (result), result);
+			goto fail;
+		}
 	}
-	if (!is_attached) {
-		error = report_prepare_error ("debugger attach check", EPERM, KERN_SUCCESS, "P_TRACED is unset; attach StikDebug's universal script before Mono initialization");
-		goto fail;
-	}
-
-	arena->execute_address = prepare_region (NULL, capacity);
-	if (!arena->execute_address) {
-		error = report_prepare_error ("StikDebug prepare_region", ENOMEM, KERN_SUCCESS, "debugger protocol returned NULL");
-		goto detach;
-	}
-	if ((uintptr_t)arena->execute_address % (size_t)page_size != 0 ||
+	if (!arena->execute_address || (uintptr_t)arena->execute_address % (size_t)page_size != 0 ||
 	    (uintptr_t)arena->execute_address > UINTPTR_MAX - capacity) {
 		arena->execute_address = NULL;
-		error = report_prepare_error ("StikDebug prepare_region", EFAULT, KERN_SUCCESS, "unaligned or overflowing executable region");
+		error = report_prepare_error ("RX arena address", EFAULT, KERN_SUCCESS, "null, unaligned or overflowing executable region");
 		goto detach;
 	}
 
@@ -167,16 +204,18 @@ mono_ios_jit_prepare (size_t capacity)
 	error = 0;
 
 detach:
-	detach_debugger ();
-	if (!error) {
-		error = debugger_status (&is_attached);
-		if (error)
-			report_prepare_error ("debugger detach check", error, KERN_SUCCESS, "sysctl process status");
-		else if (is_attached)
-			error = report_prepare_error ("debugger detach check", EBUSY, KERN_SUCCESS, "P_TRACED remains set after debugger detach");
-		if (!error)
-			error = verify_arena (arena, (size_t)page_size);
+	if (use_debugger_protocol) {
+		detach_debugger ();
+		if (!error) {
+			error = debugger_status (&is_attached);
+			if (error)
+				report_prepare_error ("debugger detach check", error, KERN_SUCCESS, "sysctl process status");
+			else if (is_attached)
+				error = report_prepare_error ("debugger detach check", EBUSY, KERN_SUCCESS, "P_TRACED remains set after debugger detach");
+		}
 	}
+	if (!error)
+		error = verify_arena (arena, (size_t)page_size);
 	if (!error) {
 		arena->next = __atomic_load_n (&arena_head, __ATOMIC_ACQUIRE);
 		__atomic_store_n (&arena_head, arena, __ATOMIC_RELEASE);
@@ -439,6 +478,35 @@ startup_capacity (size_t *capacity)
 	if (megabytes > SIZE_MAX / MONO_IOS_JIT_MEGABYTE)
 		return EINVAL;
 	*capacity = (size_t)megabytes * MONO_IOS_JIT_MEGABYTE;
+	return 0;
+}
+
+static int
+debugger_protocol_required (int *is_required)
+{
+	*is_required = 0;
+	if (__builtin_available (iOS 26.0, *)) {
+		uint32_t monitor;
+		size_t size = sizeof (monitor);
+		if (sysctlbyname ("security.codesigning.monitor", &monitor, &size, NULL, 0) != 0)
+			return report_prepare_error ("code-signing monitor", errno, KERN_SUCCESS, "sysctl security.codesigning.monitor");
+		if (size != sizeof (monitor))
+			return report_prepare_error ("code-signing monitor", EIO, KERN_SUCCESS, "unexpected monitor size");
+		if (monitor == MONO_IOS_JIT_MONITOR_TXM)
+			*is_required = 1;
+		else if (monitor != MONO_IOS_JIT_MONITOR_NONE && monitor != MONO_IOS_JIT_MONITOR_PPL)
+			return report_prepare_error ("code-signing monitor", EINVAL, KERN_SUCCESS, "unknown monitor type");
+	}
+	return 0;
+}
+
+static int
+code_signing_status (int *is_debugged)
+{
+	uint32_t flags = 0;
+	if (csops (getpid (), MONO_IOS_JIT_CS_OPS_STATUS, &flags, sizeof (flags)) != 0)
+		return errno;
+	*is_debugged = (flags & MONO_IOS_JIT_CS_DEBUGGED) != 0;
 	return 0;
 }
 
