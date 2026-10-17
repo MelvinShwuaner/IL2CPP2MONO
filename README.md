@@ -18,7 +18,7 @@ the sgen version of mono GC is used.
 
 # Status
 
-76 of the 241 API calls have NOT been implemented. (basically all of them do nothing or havent been used yet)
+75 of the 241 API calls have NOT been implemented. (basically all of them do nothing or havent been used yet)
 
 IOS version is being developed.
 
