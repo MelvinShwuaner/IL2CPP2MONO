@@ -64,6 +64,6 @@ bool InitPlatform() {
     }
     int error = mono_ios_jit_prepare(0);
     if (error)
-        os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_FAULT, "Mono iOS preparation failed: errno=%d (%{public}s). Attach StikDebug UNIVERSAL script before preparation and Unity startup; inspect Mono preparation stage logs.", error, std::strerror(error));
+        os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_FAULT, "Mono iOS preparation failed: errno=%d (%{public}s). did you attach stikdebug? make sure to use the universal script if your device needs it", error, std::strerror(error));
     return !error;
 }
