@@ -17,7 +17,7 @@ std::pair<std::string, std::string> SplitFullNameIntoComponents(const std::strin
     size_t pos = str.rfind('.');
 
     if (pos == std::string::npos)
-        return { str, "" };
+        return { "", str };
 
     return {
         str.substr(0, pos),

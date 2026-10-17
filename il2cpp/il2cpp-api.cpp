@@ -703,7 +703,7 @@ Il2CppArray* il2cpp_array_new_full(Il2CppClass *array_class, il2cpp_array_size_t
 Il2CppClass* il2cpp_bounded_array_class_get(Il2CppClass *element_class, uint32_t rank, bool bounded)
 {
     LOGCALL();
-    return (Il2CppClass*)mono_bounded_array_class_get(element_class->original, rank, bounded);
+    return WrapClass(mono_bounded_array_class_get(element_class->original, rank, bounded));
 }
 
 // class
@@ -1321,7 +1321,7 @@ const MethodInfo* il2cpp_method_get_from_reflection(const Il2CppReflectionMethod
 
 Il2CppReflectionMethod* il2cpp_method_get_object(const MethodInfo *method, Il2CppClass *refclass)
 { LOGCALL();
-    return (Il2CppReflectionMethod* )mono_method_get_object(Domain, method->originalMethod, refclass->original);
+    return (Il2CppReflectionMethod* )mono_method_get_object(Domain, method->originalMethod,  refclass ? refclass->original : nullptr);
 }
 
 const char* il2cpp_method_get_name(const MethodInfo *method)
