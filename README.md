@@ -1,5 +1,5 @@
 # IL2CPP2MONO
-a unity mod that adds support for mono on arm64 (android). will be made useless once coreclr is added to android lolll
+a Unity mod that adds support for mono on arm64 (android). will be made useless once coreclr is added to android lolll
 
 # how does it work?
 
