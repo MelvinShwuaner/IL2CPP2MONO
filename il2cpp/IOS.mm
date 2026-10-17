@@ -4,6 +4,13 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <mono/utils/mono-publib.h>
+
+MONO_BEGIN_DECLS
+
+MONO_API int mono_ios_jit_prepare (size_t capacity);
+
+MONO_END_DECLS
 
 bool ReadAssetToBuffer(
     const char* assetPath,
@@ -41,9 +48,7 @@ bool ReadAssetToBuffer(
         return true;
     }
 }
-
-__attribute__((constructor))
-static void IOS_OnLoad() {
+bool InitPlatform() {
     @autoreleasepool {
         const char* path = NSHomeDirectory().UTF8String;
         InternalPath = path;
@@ -54,4 +59,8 @@ static void IOS_OnLoad() {
         path = urls.firstObject.path.UTF8String;
         ExternalPath = path;
     }
+    int error = mono_ios_jit_prepare(0);
+    if (error)
+        NSLog(@"Mono iOS preparation failed: errno=%d (%s). Attach StikDebug UNIVERSAL script before preparation and Unity startup; inspect Mono preparation stage logs.", error, std::strerror(error));
+    return error;
 }

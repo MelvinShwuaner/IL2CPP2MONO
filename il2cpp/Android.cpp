@@ -40,8 +40,8 @@ static const char* GetPathUsingFunction(jmethodID getFilesDir, JNIEnv* env, jobj
     auto pathStr = (jstring) env->CallObjectMethod(fileObj, getAbsolutePath);
     return env->GetStringUTFChars(pathStr, nullptr);
 }
-
-static int Init(JNIEnv* env) {
+JNIEnv* env;
+bool InitPlatform() {
     jclass local;
 
     local = env->FindClass("android/app/ActivityThread");
@@ -61,7 +61,7 @@ static int Init(JNIEnv* env) {
     InternalPath = GetPathUsingFunction(env->GetMethodID(ContextClass, "getFilesDir", "()Ljava/io/File;"), env, Context, false);
     ExternalPath = GetPathUsingFunction(env->GetMethodID(ContextClass, "getExternalFilesDir", "(Ljava/lang/String;)Ljava/io/File;"), env, Context, true);
 
-    return 1;
+    return 0;
 }
 bool ReadAssetToBuffer(const char* assetPath, std::vector<uint8_t>& outBuf) {
     AAsset* asset = AAssetManager_open(AssetManager, assetPath, AASSET_MODE_BUFFER);
@@ -78,10 +78,8 @@ bool ReadAssetToBuffer(const char* assetPath, std::vector<uint8_t>& outBuf) {
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     __android_log_print(ANDROID_LOG_INFO, "libil2cpp", "JNI_Load");
     JVM = vm;
-    JNIEnv* env;
     if (vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
-    Init(env);
     return JNI_VERSION_1_6;
 }

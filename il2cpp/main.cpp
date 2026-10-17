@@ -34,6 +34,9 @@ void ExtractMonoIfNecessary() {
 static bool IsMonoReady = false;
 
 int InitMono(const char* domain_name) {
+    if (InitPlatform() != 0) {
+        return 0;
+    }
     if (DllPath.empty()) {
         DllPath = fmt::format("{}/mono", ExternalPath);
     }
@@ -53,5 +56,5 @@ int InitMono(const char* domain_name) {
     IsMonoReady = true;
     LoadInterceptors();
     FlushICallQueue();
-    return 0;
+    return 1;
 }
