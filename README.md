@@ -20,6 +20,6 @@ the sgen version of mono GC is used.
 
 75 of the 241 API calls have NOT been implemented. (basically all of them do nothing or havent been used yet)
 
-IOS version is being developed.
+It now works on ios, atleast on non-txm devices. native libraries still need to be fixed 
 
 
