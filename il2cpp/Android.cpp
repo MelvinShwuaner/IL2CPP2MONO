@@ -40,8 +40,11 @@ static const char* GetPathUsingFunction(jmethodID getFilesDir, JNIEnv* env, jobj
     auto pathStr = (jstring) env->CallObjectMethod(fileObj, getAbsolutePath);
     return env->GetStringUTFChars(pathStr, nullptr);
 }
-JNIEnv* env;
 bool InitPlatform() {
+    JNIEnv* env;
+    if (!JVM || JVM->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        return false;
+    }
     jclass local;
 
     local = env->FindClass("android/app/ActivityThread");
@@ -78,8 +81,5 @@ bool ReadAssetToBuffer(const char* assetPath, std::vector<uint8_t>& outBuf) {
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     __android_log_print(ANDROID_LOG_INFO, "libil2cpp", "JNI_Load");
     JVM = vm;
-    if (vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        return JNI_ERR;
-    }
     return JNI_VERSION_1_6;
 }
