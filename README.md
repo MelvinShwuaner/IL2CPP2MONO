@@ -4,7 +4,7 @@ a unity mod that adds support for mono on arm64 (android). will be made useless 
 # how does it work?
 
 it works by replacing the original libil2cpp with a fake, a larper if you will. this fake forwards the calls to mono. and also handles the dlls and stuff.
-<img width="1378" height="576" alt="image" src="https://cdn.discordapp.com/attachments/1375818381764198440/1561102986875379852/660485514-868bcfc8-4d69-40ce-8a1d-e514e86df7ab.png?ex=6ad521f3&is=6ad3d073&hm=6c7c2ddc27330d6378555858285c3ce6ae9b4c5fa8400d5ea1f21b5cea841414&" />
+<img width="1378" height="576" alt="image" src="https://files.catbox.moe/jjc25v.png" />
 
 most il2cpp types can just be the same as mono. but i made the MethodInfo and the class seperate because they are special. (class can be merged though, il think about it). and it looks like methodinfo is also redundant
 
