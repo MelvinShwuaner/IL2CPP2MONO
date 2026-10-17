@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 #include <mono/utils/mono-publib.h>
-
+#include <os/log.h>
 MONO_BEGIN_DECLS
 
 MONO_API int mono_ios_jit_prepare (size_t capacity);
@@ -50,7 +50,10 @@ bool ReadAssetToBuffer(
 }
 bool InitPlatform() {
     @autoreleasepool {
-        const char* path = NSHomeDirectory().UTF8String;
+        const char* path = [[[NSHomeDirectory()
+            stringByAppendingPathComponent:@"Library"]
+            stringByAppendingPathComponent:@"Caches"]
+            stringByAppendingPathComponent:@"IL2CPP2Mono"].UTF8String;
         InternalPath = path;
         NSArray<NSURL*>* urls =
             [[NSFileManager defaultManager]
@@ -61,6 +64,6 @@ bool InitPlatform() {
     }
     int error = mono_ios_jit_prepare(0);
     if (error)
-        NSLog(@"Mono iOS preparation failed: errno=%d (%s). Attach StikDebug UNIVERSAL script before preparation and Unity startup; inspect Mono preparation stage logs.", error, std::strerror(error));
-    return error;
+        os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_FAULT, "Mono iOS preparation failed: errno=%d (%{public}s). Attach StikDebug UNIVERSAL script before preparation and Unity startup; inspect Mono preparation stage logs.", error, std::strerror(error));
+    return !error;
 }

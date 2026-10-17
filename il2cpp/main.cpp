@@ -34,7 +34,7 @@ void ExtractMonoIfNecessary() {
 static bool IsMonoReady = false;
 
 int InitMono(const char* domain_name) {
-    if (InitPlatform() != 0) {
+    if (!InitPlatform()) {
         return 0;
     }
     if (DllPath.empty()) {
@@ -50,7 +50,7 @@ int InitMono(const char* domain_name) {
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");
     if (!Domain) {
         LOGE("mono_jit_init_version failed — corlib likely not found, check managed path");
-        return -1;
+        return 0;
     }
     LOGI("Mono initialized, domain = {}", (void*)Domain);
     IsMonoReady = true;

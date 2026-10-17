@@ -61,7 +61,7 @@ bool InitPlatform() {
     InternalPath = GetPathUsingFunction(env->GetMethodID(ContextClass, "getFilesDir", "()Ljava/io/File;"), env, Context, false);
     ExternalPath = GetPathUsingFunction(env->GetMethodID(ContextClass, "getExternalFilesDir", "(Ljava/lang/String;)Ljava/io/File;"), env, Context, true);
 
-    return 0;
+    return true;
 }
 bool ReadAssetToBuffer(const char* assetPath, std::vector<uint8_t>& outBuf) {
     AAsset* asset = AAssetManager_open(AssetManager, assetPath, AASSET_MODE_BUFFER);
