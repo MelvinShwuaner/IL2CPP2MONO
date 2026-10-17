@@ -1,2 +1,3 @@
 il2cpp/include/** linguist-vendored
-mono/** linguist-vendored
+mono/ios/** linguist-vendored
+mono/android/** linguist-vendored
