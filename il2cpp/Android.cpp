@@ -3,6 +3,7 @@
 #include <android/asset_manager_jni.h>
 #include "android/asset_manager.h"
 #include "Platform.h"
+#include "fmt/format.h"
 static jclass ActivityThreadClass = NULL;
 static jclass ContextClass = NULL;
 static jclass FileClass = NULL;
@@ -39,6 +40,9 @@ static const char* GetPathUsingFunction(jmethodID getFilesDir, JNIEnv* env, jobj
 
     auto pathStr = (jstring) env->CallObjectMethod(fileObj, getAbsolutePath);
     return env->GetStringUTFChars(pathStr, nullptr);
+}
+const char* GetLibPath(const std::string& MonoPath) {
+    return fmt::format("{}/lib", MonoPath).c_str();
 }
 bool InitPlatform() {
     JNIEnv* env;

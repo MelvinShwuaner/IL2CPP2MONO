@@ -32,9 +32,9 @@ void ExtractMonoIfNecessary() {
     }
 }
 static bool IsMonoReady = false;
-
 int InitMono(const char* domain_name) {
     if (!InitPlatform()) {
+        LOGE("Failed to load Platform!");
         return 0;
     }
     if (DllPath.empty()) {
@@ -44,15 +44,15 @@ int InitMono(const char* domain_name) {
         MonoPath = fmt::format("{}/mono", InternalPath);
     }
     ExtractMonoIfNecessary();
-    mono_set_dirs(fmt::format("{}/lib", MonoPath).c_str(), MonoPath.c_str());
+    mono_set_dirs(GetLibPath(MonoPath), MonoPath.c_str());
     mono_set_assemblies_path(DllPath.c_str());
-    mono_config_parse (NULL);
+    mono_config_parse (nullptr);
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");
     if (!Domain) {
         LOGE("mono_jit_init_version failed — corlib likely not found, check managed path");
         return 0;
     }
-    LOGI("Mono initialized, domain = {}", (void*)Domain);
+    LOGI("Mono initialized, domain = {}", static_cast<void *>(Domain));
     IsMonoReady = true;
     LoadInterceptors();
     FlushICallQueue();

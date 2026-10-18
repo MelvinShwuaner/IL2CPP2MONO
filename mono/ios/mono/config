@@ -1,4 +1,4 @@
-<configuration>
+<configuration>MonoRuntime
 	<dllmap dll="i:cygwin1.dll" target="libc.dylib" os="!windows" />
 	<dllmap dll="libc" target="libc.dylib" os="!windows"/>
 	<dllmap dll="intl" target="libintl.dylib" os="!windows"/>
@@ -10,11 +10,11 @@
 	<dllmap dll="i:odbc32.dll" target="libiodbc.dylib" os="osx"/>
 	<dllmap dll="oci" target="libclntsh.dylib" os="!windows"/>
 	<dllmap dll="db2cli" target="libdb2_36.dylib" os="!windows"/>
-	<dllmap dll="MonoPosixHelper" target="libMonoPosixHelper.dylib" os="!windows" />
-	<dllmap dll="System.Native" target="$mono_libdir/libmono-native.dylib" os="!windows" />
-	<dllmap dll="System.Net.Security.Native" target="$mono_libdir/libmono-native.dylib" os="!windows" />
-	<dllmap dll="System.Security.Cryptography.Native.Apple" target="$mono_libdir/libmono-native.dylib" os="osx" />
-	<dllmap dll="libmono-btls-shared" target="libmono-btls-shared.dylib" os="!windows" />
+	<dllmap dll="MonoPosixHelper" target="$mono_libdir/MonoRuntime" os="!windows" />
+	<dllmap dll="System.Native" target="$mono_libdir/MonoRuntime" os="!windows" />
+	<dllmap dll="System.Net.Security.Native" target="$mono_libdir/MonoRuntime" os="!windows" />
+	<dllmap dll="System.Security.Cryptography.Native.Apple" target="$mono_libdir/MonoRuntime" os="osx" />
+	<dllmap dll="libmono-btls-shared" target="$mono_libdir/MonoRuntime" os="!windows" />
 	<dllmap dll="i:msvcrt" target="libc.dylib" os="!windows"/>
 	<dllmap dll="i:msvcrt.dll" target="libc.dylib" os="!windows"/>
 	<dllmap dll="sqlite" target="libsqlite.0.dylib" os="!windows"/>

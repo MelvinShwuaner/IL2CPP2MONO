@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include "dlfcn.h"
 #include <vector>
 #include <mono/utils/mono-publib.h>
 #include <os/log.h>
@@ -48,19 +49,20 @@ bool ReadAssetToBuffer(
         return true;
     }
 }
+const char* GetLibPath(const std::string& MonoPath) {
+    NSString* frameworksPath = [[NSBundle mainBundle] privateFrameworksPath];
+    return [[frameworksPath stringByAppendingPathComponent:@"MonoRuntime.framework"]
+     stringByAppendingPathComponent:@"lib"].UTF8String;
+}
 bool InitPlatform() {
     @autoreleasepool {
-        const char* path = [[[NSHomeDirectory()
-            stringByAppendingPathComponent:@"Library"]
-            stringByAppendingPathComponent:@"Caches"]
-            stringByAppendingPathComponent:@"IL2CPP2Mono"].UTF8String;
-        InternalPath = path;
         NSArray<NSURL*>* urls =
             [[NSFileManager defaultManager]
                 URLsForDirectory:NSDocumentDirectory
                        inDomains:NSUserDomainMask];
-        path = urls.firstObject.path.UTF8String;
-        ExternalPath = path;
+        auto path = urls.firstObject.path;
+        InternalPath = path.UTF8String;
+        ExternalPath = [path stringByAppendingPathComponent:@"files"].UTF8String;
     }
     int error = mono_ios_jit_prepare(0);
     if (error)

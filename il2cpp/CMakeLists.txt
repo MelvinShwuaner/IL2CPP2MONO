@@ -39,6 +39,11 @@ else()
             z
             iconv
     )
+    add_custom_command(TARGET il2cpp POST_BUILD
+            COMMAND /usr/bin/libtool -static -o $<TARGET_FILE:il2cpp>
+            $<TARGET_FILE:il2cpp>
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/ios/libmonosgen-2.0.a"
+    )
 endif ()
 target_link_libraries(il2cpp PRIVATE fmt::fmt-header-only)
 target_include_directories(il2cpp PRIVATE
