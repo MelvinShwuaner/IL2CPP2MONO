@@ -35,16 +35,6 @@
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Android.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Android.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/IOS.mm" beforeDir="false" afterPath="$PROJECT_DIR$/IOS.mm" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Platform.h" beforeDir="false" afterPath="$PROJECT_DIR$/Platform.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/main.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/ios/lib/libMonoPosixHelper.dylib" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/ios/lib/libMonoSupportW.dylib" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/ios/lib/libmono-ee-interp.dylib" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/ios/lib/libmono-native.dylib" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/ios/mono/config" beforeDir="false" afterPath="$PROJECT_DIR$/../mono/ios/mono/config" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -264,7 +254,7 @@
       <workItem from="1792160805158" duration="507000" />
       <workItem from="1792220772975" duration="986000" />
       <workItem from="1792324338710" duration="2033000" />
-      <workItem from="1792337053335" duration="2617000" />
+      <workItem from="1792337053335" duration="2977000" />
     </task>
     <servers />
   </component>
