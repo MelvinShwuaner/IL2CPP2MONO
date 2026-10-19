@@ -10,5 +10,4 @@ bool ReadAssetToBuffer(
 );
 bool InitPlatform();
 inline std::string InternalPath;
-const char* GetLibPath(const std::string& MonoPath);
 inline std::string ExternalPath;

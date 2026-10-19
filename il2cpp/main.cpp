@@ -44,7 +44,7 @@ int InitMono(const char* domain_name) {
         MonoPath = fmt::format("{}/mono", InternalPath);
     }
     ExtractMonoIfNecessary();
-    mono_set_dirs(GetLibPath(MonoPath), MonoPath.c_str());
+    mono_set_dirs(fmt::format("{}/lib", MonoPath).c_str(), MonoPath.c_str());
     mono_set_assemblies_path(DllPath.c_str());
     mono_config_parse (nullptr);
     Domain = mono_jit_init_version(domain_name, "v4.0.30319");

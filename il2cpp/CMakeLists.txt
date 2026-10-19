@@ -39,10 +39,26 @@ else()
             z
             iconv
     )
+    set(IOS_MONO_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/ios")
+
+    file(GLOB IOS_MONO_LIBS CONFIGURE_DEPENDS
+            "${IOS_MONO_LIBS_DIR}/*.a"
+    )
     add_custom_command(TARGET il2cpp POST_BUILD
-            COMMAND /usr/bin/libtool -static -o $<TARGET_FILE:il2cpp>
-            $<TARGET_FILE:il2cpp>
-            "${CMAKE_CURRENT_SOURCE_DIR}/libs/ios/libmonosgen-2.0.a"
+            COMMAND "${CMAKE_COMMAND}" -E rm -f
+            "$<TARGET_FILE:il2cpp>.merged"
+
+            COMMAND /usr/bin/libtool -static
+            -o "$<TARGET_FILE:il2cpp>.merged"
+            "$<TARGET_FILE:il2cpp>"
+            ${IOS_MONO_LIBS}
+
+            COMMAND "${CMAKE_COMMAND}" -E copy
+            "$<TARGET_FILE:il2cpp>.merged"
+            "$<TARGET_FILE:il2cpp>"
+
+            COMMAND "${CMAKE_COMMAND}" -E rm -f
+            "$<TARGET_FILE:il2cpp>.merged"
     )
 endif ()
 target_link_libraries(il2cpp PRIVATE fmt::fmt-header-only)

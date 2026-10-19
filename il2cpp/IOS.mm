@@ -49,11 +49,6 @@ bool ReadAssetToBuffer(
         return true;
     }
 }
-const char* GetLibPath(const std::string& MonoPath) {
-    NSString* frameworksPath = [[NSBundle mainBundle] privateFrameworksPath];
-    return [[frameworksPath stringByAppendingPathComponent:@"MonoRuntime.framework"]
-     stringByAppendingPathComponent:@"lib"].UTF8String;
-}
 bool InitPlatform() {
     @autoreleasepool {
         NSArray<NSURL*>* urls =

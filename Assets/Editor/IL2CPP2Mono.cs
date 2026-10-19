@@ -70,7 +70,6 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
     
     private const string NativeInputsRelative = "Libraries/NativeRuntimeInputs";
     private const string AssetsRelative = NativeInputsRelative + "/Assets";
-    private const string MonoFrameworkRelative = "Frameworks/MonoRuntime.framework";
     [PostProcessBuild(CallbackOrder)]
     public static void OnPostGenerateXCodeProject(BuildTarget target, string xcodeProjectPath)
     {
@@ -82,7 +81,6 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
 
         string iosSource = Path.Combine(assetsRoot, "Editor", "IOS");
         string archiveSource = Path.Combine(iosSource, "libil2cpp.a");
-        string monoFrameworkSource = Path.Combine(iosSource, "MonoRuntime.framework");
         string monoZipSource = Path.Combine(iosSource, MonoZip);
         string managedSource = Path.GetFullPath(
             Path.Combine(assetsRoot, "..", "Library", "Bee", "artifacts", "iOS", "ManagedStripped"));
@@ -90,18 +88,11 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
         string replacementArchive = Path.Combine(xcodeProjectPath, "Libraries", "libil2cpp.a");
         File.Copy(archiveSource, replacementArchive, true);
 
-        string monoFrameworkDestination = Path.Combine(xcodeProjectPath, MonoFrameworkRelative);
-        Directory.CreateDirectory(Path.GetDirectoryName(monoFrameworkDestination));
-        if (Directory.Exists(monoFrameworkDestination))
-            Directory.Delete(monoFrameworkDestination, true);
-        FileUtil.CopyFileOrDirectory(monoFrameworkSource, monoFrameworkDestination);
-
         string assetStage = Path.Combine(xcodeProjectPath, AssetsRelative);
         RecreateDirectory(assetStage);
         File.Copy(monoZipSource, Path.Combine(assetStage, MonoZip), true);
-        string managedZip = Path.Combine(assetStage, ManagedZip);
         
-        File.Delete(managedZip);
+        string managedZip = Path.Combine(assetStage, ManagedZip);
         ZipFile.CreateFromDirectory(managedSource, managedZip);
 
         string pbxProjectPath = PBXProject.GetPBXProjectPath(xcodeProjectPath);
@@ -145,7 +136,14 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
                 glueGuid = project.AddFile(stagedRelative, stagedRelative, PBXSourceTree.Source);
             project.AddFileToBuild(frameworkTarget, glueGuid);
         }
-
+        project.AddBuildProperty(
+            frameworkTarget,
+            "OTHER_LDFLAGS",
+            "-all_load");
+        if (!project.ContainsFramework(frameworkTarget, "GSS.framework"))
+            project.AddFrameworkToProject(
+                frameworkTarget, "GSS.framework", false);
+        
         string initialPbxText = project.WriteToString();
         string gameAssemblyProductRef = GetPropertyValue(
             GetPbxObject(initialPbxText, gameAssemblyTarget), "productReference");
@@ -155,17 +153,16 @@ public class InjectMonoShim : IPostGenerateGradleAndroidProject
 
         project.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-lz");
         project.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-liconv");
-        if (!project.ContainsFramework(frameworkTarget, "Foundation.framework"))
-            project.AddFrameworkToProject(frameworkTarget, "Foundation.framework", false);
+        project.SetBuildProperty(
+            frameworkTarget,
+            "GCC_SYMBOLS_PRIVATE_EXTERN",
+            "NO");
 
-        string monoFrameworkGuid = project.FindFileGuidByProjectPath(MonoFrameworkRelative);
-        if (string.IsNullOrEmpty(monoFrameworkGuid))
-            monoFrameworkGuid = project.AddFile(MonoFrameworkRelative, MonoFrameworkRelative, PBXSourceTree.Source);
-        project.AddFileToBuild(frameworkTarget, monoFrameworkGuid);
-        project.AddFileToEmbedFrameworks(mainTarget, monoFrameworkGuid);
-        project.AddBuildProperty(frameworkTarget, "FRAMEWORK_SEARCH_PATHS", "$(PROJECT_DIR)/Frameworks");
-        project.AddBuildProperty(mainTarget, "FRAMEWORK_SEARCH_PATHS", "$(PROJECT_DIR)/Frameworks");
-
+        project.SetBuildProperty(
+            frameworkTarget,
+            "DEAD_CODE_STRIPPING",
+            "NO");
+        
         string projectText = project.WriteToString();
         if (!projectText.Contains("name = \"Copy Mono Runtime Assets\";"))
         {

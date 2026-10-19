@@ -41,9 +41,6 @@ static const char* GetPathUsingFunction(jmethodID getFilesDir, JNIEnv* env, jobj
     auto pathStr = (jstring) env->CallObjectMethod(fileObj, getAbsolutePath);
     return env->GetStringUTFChars(pathStr, nullptr);
 }
-const char* GetLibPath(const std::string& MonoPath) {
-    return fmt::format("{}/lib", MonoPath).c_str();
-}
 bool InitPlatform() {
     JNIEnv* env;
     if (!JVM || JVM->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
