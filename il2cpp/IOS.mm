@@ -51,12 +51,16 @@ bool ReadAssetToBuffer(
 }
 bool InitPlatform() {
     @autoreleasepool {
+        auto path = [[[NSHomeDirectory()
+            stringByAppendingPathComponent:@"Library"]
+            stringByAppendingPathComponent:@"Caches"]
+            stringByAppendingPathComponent:@"IL2CPP2MONO"];
+        InternalPath = path.UTF8String;
         NSArray<NSURL*>* urls =
             [[NSFileManager defaultManager]
                 URLsForDirectory:NSDocumentDirectory
                        inDomains:NSUserDomainMask];
-        auto path = urls.firstObject.path;
-        InternalPath = path.UTF8String;
+        path = urls.firstObject.path;
         ExternalPath = [path stringByAppendingPathComponent:@"files"].UTF8String;
     }
     int error = mono_ios_jit_prepare(0);

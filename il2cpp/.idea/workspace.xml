@@ -35,13 +35,7 @@
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Android.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Android.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/IOS.mm" beforeDir="false" afterPath="$PROJECT_DIR$/IOS.mm" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Platform.h" beforeDir="false" afterPath="$PROJECT_DIR$/Platform.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/main.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/Scripts/MonoRuntimeIOS.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../mono/ios/mono/config" beforeDir="false" afterPath="$PROJECT_DIR$/../mono/ios/mono/config" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/InternalCalls.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/InternalCalls.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -174,9 +168,9 @@
     </key>
   </component>
   <component name="RunManager" selected="CMake Application.il2cpp">
-    <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
-        <option name="CLION.EXTERNAL.BUILD" enabled="true" />
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
     <configuration name="fmt-c" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="il2cpp" TARGET_NAME="fmt-c" CONFIG_NAME="Android">
@@ -269,6 +263,7 @@
       <workItem from="1792337053335" duration="3710000" />
       <workItem from="1792354333406" duration="894000" />
       <workItem from="1792420951250" duration="362000" />
+      <workItem from="1792434776503" duration="1308000" />
     </task>
     <servers />
   </component>
