@@ -34,7 +34,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/InternalCalls.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/InternalCalls.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/libs/ios/libmonosgen-2.0.a" beforeDir="false" afterPath="$PROJECT_DIR$/libs/ios/libmonosgen-2.0.a" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -259,6 +261,7 @@
       <workItem from="1792420951250" duration="362000" />
       <workItem from="1792434776503" duration="1308000" />
       <workItem from="1792482774698" duration="1369000" />
+      <workItem from="1792494204895" duration="83000" />
     </task>
     <servers />
   </component>
