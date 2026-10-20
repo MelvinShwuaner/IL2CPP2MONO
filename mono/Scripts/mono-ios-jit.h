@@ -2,11 +2,18 @@
 #define __MONO_IOS_JIT_H__
 
 #include <mono/utils/mono-publib.h>
+#include <stdint.h>
 
 MONO_BEGIN_DECLS
 
 MONO_API int mono_ios_jit_prepare (size_t capacity);
 MONO_API mono_bool mono_ios_jit_contains_code (const void *address, size_t size);
+
+int mono_ios_jit_detour_apply (void *address, void *target);
+int mono_ios_jit_detour_backup (const void *source, void *buffer, uint32_t size);
+int mono_ios_jit_detour_restore (const void *buffer, void *destination, uint32_t size);
+int mono_ios_jit_detour_flush (void *address, uint32_t size);
+int mono_ios_jit_detour_validate (void *address, uint32_t size);
 
 void *mono_ios_jit_alloc (size_t size);
 void mono_ios_jit_free (void *address, size_t size);

@@ -29,9 +29,15 @@
 #define MONO_IOS_JIT_MONITOR_NONE 0u
 #define MONO_IOS_JIT_MONITOR_PPL 1u
 #define MONO_IOS_JIT_MONITOR_TXM 2u
+#define MONO_IOS_JIT_BRANCH_FORWARD_MAX 0x07fffffcu
+#define MONO_IOS_JIT_BRANCH_BACKWARD_MAX 0x08000000u
+#define MONO_IOS_JIT_BRANCH 0x14000000u
+#define MONO_IOS_JIT_LDR_X15 0x5800004fu
+#define MONO_IOS_JIT_BR_X15 0xd61f01e0u
 
 typedef struct _MonoIosJitRange MonoIosJitRange;
 typedef struct _MonoIosJitArena MonoIosJitArena;
+typedef struct _MonoIosJitDetourIsland MonoIosJitDetourIsland;
 struct _MonoIosJitRange {
 	size_t offset;
 	size_t size;
@@ -44,7 +50,14 @@ struct _MonoIosJitArena {
 	size_t capacity;
 	MonoIosJitRange *free_ranges;
 	MonoIosJitRange *allocations;
+	MonoIosJitDetourIsland *detour_islands;
 	MonoIosJitArena *next;
+};
+
+struct _MonoIosJitDetourIsland {
+	void *address;
+	void *target;
+	MonoIosJitDetourIsland *next;
 };
 
 static MonoIosJitArena *arena_head;
@@ -68,6 +81,11 @@ static int mach_error_number (kern_return_t result);
 static int report_prepare_error (const char *stage, int error, kern_return_t native_error = KERN_SUCCESS, const char *detail = "");
 static void release_arena (MonoIosJitArena *arena);
 static void release_ranges (MonoIosJitRange *range);
+static int encode_detour_branch (const void *address, const void *target, uint32_t *instruction);
+static void *allocate_detour_island (void *address, void *target, int *is_new);
+static int validate_detour_code (const void *address, size_t size);
+static int is_detour_buffer (const void *buffer, size_t size);
+static void flush_detour_code (MonoIosJitArena *arena, void *address, size_t size);
 
 __attribute__((noinline, optnone, naked))
 static void *
@@ -243,6 +261,111 @@ mono_ios_jit_contains_code (const void *address, size_t size)
 	return 0;
 }
 
+int
+mono_ios_jit_detour_apply (void *address, void *target)
+{
+	uint32_t instruction;
+	MonoIosJitArena *arena;
+	int error = pthread_mutex_lock (&arena_mutex);
+
+	if (error)
+		return error;
+	error = validate_detour_code (address, sizeof (instruction));
+	if (!error && (!target || target == address || (uintptr_t)target % sizeof (instruction)))
+		error = EINVAL;
+	if (!error && !encode_detour_branch (address, target, &instruction)) {
+		int is_new;
+		void *island = allocate_detour_island (address, target, &is_new);
+		if (!island) {
+			error = ENOMEM;
+		} else {
+			if (is_new) {
+				uint32_t instructions [2] = { MONO_IOS_JIT_LDR_X15, MONO_IOS_JIT_BR_X15 };
+				uint64_t island_target = (uintptr_t)target;
+				MonoIosJitArena *island_arena = find_arena (island);
+				write_arena_memory (island_arena, island, instructions, sizeof (instructions), 0, 0);
+				write_arena_memory (island_arena, (char *)island + sizeof (instructions), &island_target, sizeof (island_target), 0, 0);
+				flush_detour_code (island_arena, island, MONO_IOS_JIT_ALIGNMENT);
+			}
+			if (!encode_detour_branch (address, island, &instruction))
+				__builtin_trap ();
+		}
+	}
+	if (!error) {
+		arena = find_arena (address);
+		write_arena_memory (arena, address, &instruction, sizeof (instruction), 0, 0);
+		flush_detour_code (arena, address, sizeof (instruction));
+	}
+	pthread_mutex_unlock (&arena_mutex);
+	return error;
+}
+
+int
+mono_ios_jit_detour_backup (const void *source, void *buffer, uint32_t size)
+{
+	uint32_t instruction;
+	int error = pthread_mutex_lock (&arena_mutex);
+
+	if (error)
+		return error;
+	error = validate_detour_code (source, size);
+	if (!error && (size != sizeof (instruction) || !is_detour_buffer (buffer, size)))
+		error = EINVAL;
+	if (!error) {
+		instruction = __atomic_load_n ((const uint32_t *)source, __ATOMIC_ACQUIRE);
+		memcpy (buffer, &instruction, sizeof (instruction));
+	}
+	pthread_mutex_unlock (&arena_mutex);
+	return error;
+}
+
+int
+mono_ios_jit_detour_restore (const void *buffer, void *destination, uint32_t size)
+{
+	uint32_t instruction;
+	int error = pthread_mutex_lock (&arena_mutex);
+
+	if (error)
+		return error;
+	error = validate_detour_code (destination, size);
+	if (!error && (size != sizeof (instruction) || !is_detour_buffer (buffer, size)))
+		error = EINVAL;
+	if (!error) {
+		MonoIosJitArena *arena = find_arena (destination);
+		memcpy (&instruction, buffer, sizeof (instruction));
+		write_arena_memory (arena, destination, &instruction, sizeof (instruction), 0, 0);
+		flush_detour_code (arena, destination, sizeof (instruction));
+	}
+	pthread_mutex_unlock (&arena_mutex);
+	return error;
+}
+
+int
+mono_ios_jit_detour_flush (void *address, uint32_t size)
+{
+	int error = pthread_mutex_lock (&arena_mutex);
+
+	if (error)
+		return error;
+	error = validate_detour_code (address, size);
+	if (!error)
+		flush_detour_code (find_arena (address), address, size);
+	pthread_mutex_unlock (&arena_mutex);
+	return error;
+}
+
+int
+mono_ios_jit_detour_validate (void *address, uint32_t size)
+{
+	int error = pthread_mutex_lock (&arena_mutex);
+
+	if (error)
+		return error;
+	error = validate_detour_code (address, size);
+	pthread_mutex_unlock (&arena_mutex);
+	return error;
+}
+
 void *
 mono_ios_jit_alloc (size_t size)
 {
@@ -315,10 +438,18 @@ mono_ios_jit_free (void *address, size_t size)
 	}
 	for (arena = __atomic_load_n (&arena_head, __ATOMIC_ACQUIRE); arena; arena = arena->next) {
 		MonoIosJitRange **allocation_link;
+		MonoIosJitDetourIsland *island;
 		size_t offset = (uintptr_t)address - (uintptr_t)arena->execute_address;
 
 		if (offset >= arena->capacity)
 			continue;
+		for (island = arena->detour_islands; island; island = island->next) {
+			if (island->address == address) {
+				pthread_mutex_unlock (&arena_mutex);
+				errno = EINVAL;
+				return;
+			}
+		}
 		for (allocation_link = &arena->allocations; *allocation_link; allocation_link = &(*allocation_link)->next) {
 			MonoIosJitRange *allocation = *allocation_link;
 			MonoIosJitRange **free_link;
@@ -421,6 +552,164 @@ find_arena (void *address)
 			return arena;
 	}
 	return NULL;
+}
+
+static int
+encode_detour_branch (const void *address, const void *target, uint32_t *instruction)
+{
+	uintptr_t source_address = (uintptr_t)address;
+	uintptr_t target_address = (uintptr_t)target;
+	uintptr_t distance;
+	uint32_t displacement;
+
+	if (source_address % sizeof (uint32_t) || target_address % sizeof (uint32_t))
+		return 0;
+	if (target_address >= source_address) {
+		distance = target_address - source_address;
+		if (distance > MONO_IOS_JIT_BRANCH_FORWARD_MAX)
+			return 0;
+		displacement = (uint32_t)(distance / sizeof (uint32_t));
+	} else {
+		distance = source_address - target_address;
+		if (distance > MONO_IOS_JIT_BRANCH_BACKWARD_MAX)
+			return 0;
+		displacement = 0u - (uint32_t)(distance / sizeof (uint32_t));
+	}
+	*instruction = MONO_IOS_JIT_BRANCH | (displacement & 0x03ffffffu);
+	return 1;
+}
+
+static void *
+allocate_detour_island (void *address, void *target, int *is_new)
+{
+	MonoIosJitArena *arena;
+	uintptr_t source_address = (uintptr_t)address;
+	uintptr_t minimum_address = source_address >= MONO_IOS_JIT_BRANCH_BACKWARD_MAX ? source_address - MONO_IOS_JIT_BRANCH_BACKWARD_MAX : 0;
+
+	*is_new = 0;
+	for (arena = __atomic_load_n (&arena_head, __ATOMIC_ACQUIRE); arena; arena = arena->next) {
+		MonoIosJitDetourIsland *island;
+		for (island = arena->detour_islands; island; island = island->next) {
+			uint32_t instruction;
+			if (island->target == target && encode_detour_branch (address, island->address, &instruction))
+				return island->address;
+		}
+	}
+	for (arena = __atomic_load_n (&arena_head, __ATOMIC_ACQUIRE); arena; arena = arena->next) {
+		MonoIosJitRange **free_link;
+		for (free_link = &arena->free_ranges; *free_link; free_link = &(*free_link)->next) {
+			MonoIosJitRange *range = *free_link;
+			MonoIosJitRange *allocation;
+			MonoIosJitRange *trailing = NULL;
+			MonoIosJitDetourIsland *island;
+			uintptr_t candidate = (uintptr_t)arena->execute_address + range->offset;
+			size_t offset;
+			size_t leading_size;
+			size_t trailing_size;
+			uint32_t instruction;
+
+			if (candidate < minimum_address)
+				candidate = minimum_address;
+			if (candidate > UINTPTR_MAX - (MONO_IOS_JIT_ALIGNMENT - 1))
+				continue;
+			candidate = (candidate + MONO_IOS_JIT_ALIGNMENT - 1) & ~(uintptr_t)(MONO_IOS_JIT_ALIGNMENT - 1);
+			offset = candidate - (uintptr_t)arena->execute_address;
+			if (offset < range->offset || offset - range->offset > range->size ||
+			    MONO_IOS_JIT_ALIGNMENT > range->size - (offset - range->offset) ||
+			    !encode_detour_branch (address, (void *)candidate, &instruction))
+				continue;
+			leading_size = offset - range->offset;
+			trailing_size = range->size - leading_size - MONO_IOS_JIT_ALIGNMENT;
+			allocation = (MonoIosJitRange *)malloc (sizeof (*allocation));
+			if (!allocation)
+				return NULL;
+			if (leading_size && trailing_size) {
+				trailing = (MonoIosJitRange *)malloc (sizeof (*trailing));
+				if (!trailing) {
+					free (allocation);
+					return NULL;
+				}
+				trailing->offset = offset + MONO_IOS_JIT_ALIGNMENT;
+				trailing->size = trailing_size;
+				trailing->next = range->next;
+			}
+			island = (MonoIosJitDetourIsland *)malloc (sizeof (*island));
+			if (!island) {
+				free (trailing);
+				free (allocation);
+				return NULL;
+			}
+			if (leading_size) {
+				range->size = leading_size;
+				if (trailing)
+					range->next = trailing;
+			} else if (trailing_size) {
+				range->offset += MONO_IOS_JIT_ALIGNMENT;
+				range->size = trailing_size;
+			} else {
+				*free_link = range->next;
+				free (range);
+			}
+			allocation->offset = offset;
+			allocation->size = MONO_IOS_JIT_ALIGNMENT;
+			allocation->next = arena->allocations;
+			arena->allocations = allocation;
+			island->address = (void *)candidate;
+			island->target = target;
+			island->next = arena->detour_islands;
+			arena->detour_islands = island;
+			*is_new = 1;
+			return (void *)candidate;
+		}
+	}
+	return NULL;
+}
+
+static int
+validate_detour_code (const void *address, size_t size)
+{
+	MonoIosJitArena *arena;
+	MonoIosJitRange *allocation;
+	size_t offset;
+
+	if (!address || (uintptr_t)address % sizeof (uint32_t) || !size || size % sizeof (uint32_t))
+		return EINVAL;
+	arena = find_arena ((void *)address);
+	if (!arena)
+		return EFAULT;
+	offset = (uintptr_t)address - (uintptr_t)arena->execute_address;
+	for (allocation = arena->allocations; allocation; allocation = allocation->next) {
+		if (offset >= allocation->offset && offset - allocation->offset < allocation->size &&
+		    size <= allocation->size - (offset - allocation->offset))
+			return 0;
+	}
+	return EFAULT;
+}
+
+static int
+is_detour_buffer (const void *buffer, size_t size)
+{
+	MonoIosJitArena *arena;
+	uintptr_t start = (uintptr_t)buffer;
+
+	if (!buffer || size > UINTPTR_MAX - start)
+		return 0;
+	for (arena = __atomic_load_n (&arena_head, __ATOMIC_ACQUIRE); arena; arena = arena->next) {
+		uintptr_t execute_address = (uintptr_t)arena->execute_address;
+		uintptr_t write_address = (uintptr_t)arena->write_address;
+		if ((start < execute_address + arena->capacity && execute_address < start + size) ||
+		    (start < write_address + arena->capacity && write_address < start + size))
+			return 0;
+	}
+	return 1;
+}
+
+static void
+flush_detour_code (MonoIosJitArena *arena, void *address, size_t size)
+{
+	size_t offset = (uintptr_t)address - (uintptr_t)arena->execute_address;
+	sys_dcache_flush ((char *)arena->write_address + offset, size);
+	sys_icache_invalidate (address, size);
 }
 
 static void
@@ -640,6 +929,12 @@ report_prepare_error (const char *stage, int error, kern_return_t native_error, 
 static void
 release_arena (MonoIosJitArena *arena)
 {
+	MonoIosJitDetourIsland *island = arena->detour_islands;
+	while (island) {
+		MonoIosJitDetourIsland *next = island->next;
+		free (island);
+		island = next;
+	}
 	if (arena->write_address)
 		vm_deallocate (mach_task_self (), (vm_address_t)arena->write_address, arena->capacity);
 	if (arena->execute_address)

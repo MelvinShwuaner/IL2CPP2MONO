@@ -1,27 +1,88 @@
+import argparse
+from difflib import unified_diff
+import importlib.util
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 # Whoever wrote this must've been smoking some hot shit ngl
 # :wbstupid:
 
+BASE_REVISION = "b8eb56fab45dd52845fabba7b7ddc9a80b2b0498"
+BASE_BRANCH = "unity-2022.3-mbe"
+ASSET_NAMES = ("mono-ios-jit.cpp", "mono-ios-jit.h")
 PATCH = r"""diff --git a/configure.ac b/configure.ac
 --- a/configure.ac
 +++ b/configure.ac
-@@ -5083,6 +5083,12 @@
+@@ -5083,6 +5083,48 @@
  
  AM_CONDITIONAL(TARGET_OSX, test x$target_osx = xyes)
  
 +AC_ARG_ENABLE(ios-jit, [  --enable-ios-jit          Enable the ARM64 iOS JIT code pool], [], [enable_ios_jit=no])
-+if test "x$enable_ios_jit" = "xyes"; then
++case "$enable_ios_jit" in
++yes)
++	if test "x$target_ios" != "xyes" -o "x$TARGET" != "xARM64" -o "x$host" != "x$target"; then
++		AC_MSG_ERROR([--enable-ios-jit requires an ARM64 iOS device runtime])
++	fi
++	if test "x$mono_feature_disable_jit" = "xyes"; then
++		AC_MSG_ERROR([--enable-ios-jit cannot be combined with --enable-minimal=jit])
++	fi
++	if test "x$support_boehm" != "xno"; then
++		AC_MSG_ERROR([--enable-ios-jit requires --disable-boehm and the SGen collector])
++	fi
++	if test "x$enable_llvm" = "xyes" -o "x$enable_llvm_runtime" = "xyes" -o "x$with_bitcode" = "xyes"; then
++		AC_MSG_ERROR([--enable-ios-jit requires the Mono JIT without LLVM or bitcode])
++	fi
++	AC_COMPILE_IFELSE([AC_LANG_SOURCE([
++#include <TargetConditionals.h>
++#include <Availability.h>
++#if !TARGET_OS_IOS || TARGET_OS_SIMULATOR || !defined(__aarch64__) || defined(__arm64e__)
++#error ARM64 iOS device target required; arm64e is unsupported
++#endif
++#if __IPHONE_OS_VERSION_MIN_REQUIRED < 170400
++#error iOS 17.4 or newer deployment target required
++#endif
++#if __IPHONE_OS_VERSION_MIN_REQUIRED > __IPHONE_OS_VERSION_MAX_ALLOWED
++#error Deployment target exceeds the selected iPhoneOS SDK
++#endif
++#ifdef DISABLE_JIT
++#error JIT must be enabled
++#endif
++int main (void) { return 0; }
++	])], [], [AC_MSG_ERROR([--enable-ios-jit requires the iPhoneOS SDK, iOS 17.4 or newer, and JIT enabled])])
 +	AC_DEFINE(ENABLE_IOS_JIT, 1, [Enable the ARM64 iOS JIT code pool])
-+fi
++	;;
++no)
++	;;
++*)
++	AC_MSG_ERROR([--enable-ios-jit accepts only yes or no])
++	;;
++esac
 +AM_CONDITIONAL(ENABLE_IOS_JIT, test x$enable_ios_jit = xyes)
 +
  AC_SUBST(SIZEOF_VOID_P,[$ac_cv_sizeof_void_p])
  
  if test "x$target_byte_order" = "xG_BIG_ENDIAN"; then
+@@ -5119,6 +5161,9 @@
+ dnl
+ SGEN_DEFINES=
+ AC_ARG_WITH(sgen,                    [  --with-sgen=yes,no             Extra Generational GC, default=yes],[buildsgen=$with_sgen],[buildsgen=yes])
++if test "x$enable_ios_jit" = "xyes" -a "x$buildsgen" != "xyes"; then
++   AC_MSG_ERROR([--enable-ios-jit requires --with-sgen=yes])
++fi
+ AC_ARG_WITH(sgen-default-concurrent, [  --with-sgen-default-concurrent=yes,no             Use Concurrent GC, default=no],[],[with_sgen_default_concurrent=no])
+ if test x$buildsgen = xyes; then
+    AC_DEFINE(HAVE_MOVING_COLLECTOR, 1, [Moving collector])
+@@ -5511,6 +5556,9 @@
+ fi
+ 
+ AC_ARG_ENABLE(icall-tables,[  --disable-icall-tables Disable the runtime lookup of icalls], icall_tables=$enableval, icall_tables=yes)
++if test "x$enable_ios_jit" = "xyes" -a "x$icall_tables" != "xyes"; then
++   AC_MSG_ERROR([--enable-ios-jit requires runtime icall tables])
++fi
+ if test "x$icall_tables" = "xno"; then
+    AC_DEFINE(DISABLE_ICALL_TABLES, 1, [Icall tables disabled])
+ fi
 diff --git a/mono/arch/arm64/arm64-codegen.h b/mono/arch/arm64/arm64-codegen.h
 --- a/mono/arch/arm64/arm64-codegen.h
 +++ b/mono/arch/arm64/arm64-codegen.h
@@ -227,7 +288,7 @@ diff --git a/mono/mini/debugger-agent.c b/mono/mini/debugger-agent.c
 diff --git a/mono/mini/driver.c b/mono/mini/driver.c
 --- a/mono/mini/driver.c
 +++ b/mono/mini/driver.c
-@@ -2936,6 +2936,13 @@
+@@ -2936,6 +2936,22 @@
  MonoDomain * 
  mono_jit_init_version (const char *domain_name, const char *runtime_version)
  {
@@ -239,12 +300,21 @@ diff --git a/mono/mini/driver.c b/mono/mini/driver.c
 +	}
 +#endif
  	MonoDomain *ret = mini_init (domain_name, runtime_version);
++#ifdef ENABLE_IOS_JIT
++	if (ret) {
++		mono_add_internal_call ("MonoMod.RuntimeDetour.Platforms.DetourNativeIOSPlatform::NativeApply", mono_ios_jit_detour_apply);
++		mono_add_internal_call ("MonoMod.RuntimeDetour.Platforms.DetourNativeIOSPlatform::NativeBackup", mono_ios_jit_detour_backup);
++		mono_add_internal_call ("MonoMod.RuntimeDetour.Platforms.DetourNativeIOSPlatform::NativeRestore", mono_ios_jit_detour_restore);
++		mono_add_internal_call ("MonoMod.RuntimeDetour.Platforms.DetourNativeIOSPlatform::NativeFlush", mono_ios_jit_detour_flush);
++		mono_add_internal_call ("MonoMod.RuntimeDetour.Platforms.DetourNativeIOSPlatform::NativeValidate", mono_ios_jit_detour_validate);
++	}
++#endif
  	MONO_ENTER_GC_SAFE_UNBALANCED; //once it is not executing any managed code yet, it's safe to run the gc
  	return ret;
 diff --git a/mono/mini/jit.h b/mono/mini/jit.h
 --- a/mono/mini/jit.h
 +++ b/mono/mini/jit.h
-@@ -12,6 +12,12 @@
+@@ -12,6 +12,18 @@
  #include <mono/metadata/appdomain.h>
  
  MONO_BEGIN_DECLS
@@ -254,6 +324,12 @@ diff --git a/mono/mini/jit.h b/mono/mini/jit.h
 +
 +MONO_API mono_bool
 +mono_ios_jit_contains_code (const void *address, size_t size);
++
++int mono_ios_jit_detour_apply (void *address, void *target);
++int mono_ios_jit_detour_backup (const void *source, void *buffer, unsigned int size);
++int mono_ios_jit_detour_restore (const void *buffer, void *destination, unsigned int size);
++int mono_ios_jit_detour_flush (void *address, unsigned int size);
++int mono_ios_jit_detour_validate (void *address, unsigned int size);
  
  MONO_API MONO_RT_EXTERNAL_ONLY MonoDomain * 
  mono_jit_init              (const char *file);
@@ -689,20 +765,101 @@ diff --git a/mono/metadata/icall-decl.h b/mono/metadata/icall-decl.h
  // grep ICALL_EXPORT | sort | uniq
 """
 
-checkout = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
-src_dir = Path(__file__).resolve().parent
-dst_dir = checkout / "mono/Scripts"
-dst_dir.mkdir(parents=True, exist_ok=True)
-for name in ("mono-ios-jit.cpp", "mono-ios-jit.h"):
-    if (src_dir / name).resolve() != (dst_dir / name).resolve():
-        shutil.copy2(src_dir / name, dst_dir / name)
 
-subprocess.run(
-    ["git", "-C", str(checkout), "apply", "--whitespace=nowarn", "-"],
-    input=PATCH,
-    text=True,
-    check=True,
-)
+def build_patch():
+    patch = PATCH
+    for name in ASSET_NAMES:
+        source = Path(__file__).with_name(name).read_text(encoding="utf-8")
+        if not source:
+            raise ValueError(f"Required source file is empty: {name}")
+        if not source.endswith("\n"):
+            source += "\n"
+        patch += f"diff --git a/mono/Scripts/{name} b/mono/Scripts/{name}\nnew file mode 100644\n"
+        patch += "".join(unified_diff(
+            [], source.splitlines(keepends=True),
+            fromfile="/dev/null", tofile=f"b/mono/Scripts/{name}",
+        ))
+    return patch
 
 
-# ts shit was over 1k lines once ong
+def run_git(checkout, *arguments, patch=None):
+    result = subprocess.run(
+        ["git", "-C", str(checkout), *arguments],
+        input=patch.encode("utf-8") if patch is not None else None, capture_output=True,
+    )
+    result.stdout = result.stdout.decode("utf-8", errors="replace")
+    result.stderr = result.stderr.decode("utf-8", errors="replace")
+    return result
+
+
+def checked_checkout(path, patch):
+    checkout = path.resolve(strict=True)
+    result = run_git(checkout, "rev-parse", "--show-toplevel")
+    if result.returncode or checkout != Path(result.stdout.strip()).resolve():
+        raise ValueError("Pass an existing Unity Mono Git checkout root.")
+    for line in patch.splitlines():
+        if not line.startswith("+++ b/"):
+            continue
+        name = line[6:]
+        relative = Path(name)
+        destination = checkout / relative
+        if relative.is_absolute() or ".." in relative.parts or destination.resolve() != destination:
+            raise ValueError(f"Invalid or redirected patch destination: {name}")
+        if destination.exists() and not destination.is_file():
+            raise ValueError(f"Patch destination is not a file: {name}")
+    return checkout
+
+
+def apply_changes(checkout, check_only, patch):
+    arguments = ("apply", "--whitespace=nowarn", "-")
+    forward = run_git(checkout, *arguments, "--check", patch=patch)
+    if forward.returncode:
+        reverse = run_git(checkout, *arguments, "--reverse", "--check", patch=patch)
+        if reverse.returncode == 0:
+            print("SGen iOS JIT and Unity liveness changes already applied.")
+            return 0
+        sys.stderr.write("Mono source conflicts or is partially patched. No changes applied.\n" + forward.stderr)
+        return 1
+    if check_only:
+        print("SGen iOS JIT and Unity liveness patch ready.")
+        return 0
+    result = run_git(checkout, *arguments, patch=patch)
+    if result.returncode:
+        sys.stderr.write(result.stderr)
+        return result.returncode
+    print(f"Applied SGen iOS JIT and Unity liveness changes to {checkout}.")
+    return 0
+
+
+def emit_validation(repository, patch):
+    helper = Path(__file__).resolve().parents[2] / "tests/emit_ios_validation.py"
+    if not helper.is_file():
+        raise ValueError(f"Optional diagnostic assets missing: {helper}")
+    spec = importlib.util.spec_from_file_location("mono_ios_validation", helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.emit_validation(repository, patch)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=f"Patch Unity Mono {BASE_BRANCH} ({BASE_REVISION}) for ARM64 iOS SGen JIT.")
+    parser.add_argument("checkout", nargs="?", type=Path)
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--check", action="store_true")
+    action.add_argument("--emit-validation", type=Path, metavar="REPOSITORY")
+    arguments = parser.parse_args()
+    if arguments.emit_validation is not None and arguments.checkout is not None:
+        parser.error("--emit-validation cannot be combined with a checkout argument.")
+    try:
+        patch = build_patch()
+        if arguments.emit_validation is not None:
+            return emit_validation(arguments.emit_validation, patch)
+        checkout = checked_checkout(arguments.checkout or Path.cwd(), patch)
+        return apply_changes(checkout, arguments.check, patch)
+    except (OSError, ValueError, UnicodeError) as error:
+        sys.stderr.write(f"Cannot prepare Mono: {error}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
