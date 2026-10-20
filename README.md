@@ -27,6 +27,6 @@ if you are building the game in the unity editor however, use the editor script.
 # Installation (IOS)
 
 on ios, you arent going to be able to just modify the ipa or something. you will have to use the editor script.
-in Editor/IOS. have libil2cpp.a, which is il2cpp2mono merged with monosgen-2.0. have mono.zip and MonoRuntime.framework (this is the mono native libs)
+in Editor/IOS. have libil2cpp.a, which is il2cpp2mono merged with mono libraries. and have mono.zip
 
 it will require some form of a JIT enabler, like stikdebug
