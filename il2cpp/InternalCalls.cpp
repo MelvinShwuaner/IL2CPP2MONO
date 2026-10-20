@@ -40,6 +40,9 @@ static std::unordered_map<std::string, Il2CppMethodPointer> ICallQueue;
 static void FlushICallQueue()
 {
     for (auto& icall : ICallQueue) {
+        if (ICallTable.contains(icall.first)) {
+            continue;
+        }
         AddInternalCall(icall.first.c_str(), icall.second);
     }
     ICallQueue.clear();
