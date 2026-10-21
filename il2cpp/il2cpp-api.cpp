@@ -1058,8 +1058,7 @@ bool il2cpp_field_has_attribute(FieldInfo *field, Il2CppClass *attr_class)
 
 void il2cpp_field_set_value_object(Il2CppObject* objectInstance, FieldInfo* field, Il2CppObject* value)
 { LOGCALL();
-    MonoObject* v = (MonoObject*)value;
-    mono_field_set_value((MonoObject*)objectInstance, (MonoClassField*)field, v);
+    mono_field_set_value((MonoObject*)objectInstance, (MonoClassField*)field, value);
 }
 
 bool il2cpp_field_is_literal(FieldInfo *field)
