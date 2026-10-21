@@ -385,35 +385,29 @@ Il2CppObject* il2cpp_runtime_invoke_convert_args(const MethodInfo* method, void*
                                                    Il2CppException** exc)
 {
     LOGCALL();
-    MonoArray* args = mono_array_new(
-        mono_domain_get(),
-        mono_get_object_class(),
-        static_cast<uintptr_t>(paramCount));
-    for (int i = 0; i < paramCount; ++i) {
-        void* slot = mono_array_addr_with_size(
-            args, sizeof(MonoObject*), i);
+    MonoMethod* m = method->originalMethod;
 
-        mono_gc_wbarrier_set_arrayref(
-            args, slot, reinterpret_cast<MonoObject*>(params[i]));
-    }
+    MonoArray* args = mono_array_new(mono_domain_get(), mono_get_object_class(),
+                                     static_cast<uintptr_t>(paramCount));
+    for (int i = 0; i < paramCount; ++i)
+        mono_array_setref(args, i, reinterpret_cast<MonoObject*>(params[i]));
+
     MonoObject* monoExc = nullptr;
-    MonoObject* result = mono_runtime_invoke_array(
-        method->originalMethod, obj, args, &monoExc);
+    MonoObject* result = mono_runtime_invoke_array(m, obj, args, &monoExc);
+
+    MonoMethodSignature* sig = mono_method_signature(m);
+    const int sigCount = static_cast<int>(mono_signature_get_param_count(sig));
     void* iter = nullptr;
-    auto sig = method->originalMethod->signature;
-    for (int i = 0; i < paramCount; ++i) {
+    for (int i = 0; i < paramCount && i < sigCount; ++i)
+    {
         MonoType* type = mono_signature_get_params(sig, &iter);
         if (!mono_type_is_byref(type))
             continue;
-
-        auto* slot = reinterpret_cast<MonoObject**>(
-            mono_array_addr_with_size(args, sizeof(MonoObject*), i));
-
-        mono_gc_wbarrier_generic_store(&params[i], *slot);
+        params[i] = reinterpret_cast<Il2CppObject*>(mono_array_get(args, MonoObject*, i));
     }
     if (exc)
-        *exc = (Il2CppException*)monoExc;
-    return (Il2CppObject*)result;
+        *exc = reinterpret_cast<Il2CppException*>(monoExc);
+    return reinterpret_cast<Il2CppObject*>(result);
 }
 
 void il2cpp_runtime_class_init(Il2CppClass* klass)
