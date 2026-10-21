@@ -385,26 +385,34 @@ Il2CppObject* il2cpp_runtime_invoke_convert_args(const MethodInfo* method, void*
                                                    Il2CppException** exc)
 {
     LOGCALL();
-    MonoMethodSignature* sig = mono_method_signature(method->originalMethod);
-    void* iter = nullptr;
-    std::vector<void*> nativeArgs(paramCount);
+    MonoArray* args = mono_array_new(
+        mono_domain_get(),
+        mono_get_object_class(),
+        static_cast<uintptr_t>(paramCount));
+    for (int i = 0; i < paramCount; ++i) {
+        void* slot = mono_array_addr_with_size(
+            args, sizeof(MonoObject*), i);
 
-    for (int i = 0; i < paramCount; i++) {
-        MonoType* paramType = mono_signature_get_params(sig, &iter);
-        auto* argObj = (MonoObject*)params[i];
-
-        if (argObj && mono_type_is_struct(paramType)) {
-            // Value type — unbox to get a pointer to the raw data
-            nativeArgs[i] = mono_object_unbox(argObj);
-        } else {
-            // Reference type — pass the object pointer itself
-            nativeArgs[i] = argObj;
-        }
+        mono_gc_wbarrier_set_arrayref(
+            args, slot, reinterpret_cast<MonoObject*>(params[i]));
     }
-
     MonoObject* monoExc = nullptr;
-    MonoObject* result = mono_runtime_invoke(method->originalMethod, obj, nativeArgs.data(), &monoExc);
-    if (exc) *exc = (Il2CppException*)monoExc;
+    MonoObject* result = mono_runtime_invoke_array(
+        method->originalMethod, obj, args, &monoExc);
+    void* iter = nullptr;
+    auto sig = method->originalMethod->signature;
+    for (int i = 0; i < paramCount; ++i) {
+        MonoType* type = mono_signature_get_params(sig, &iter);
+        if (!mono_type_is_byref(type))
+            continue;
+
+        auto* slot = reinterpret_cast<MonoObject**>(
+            mono_array_addr_with_size(args, sizeof(MonoObject*), i));
+
+        mono_gc_wbarrier_generic_store(&params[i], *slot);
+    }
+    if (exc)
+        *exc = (Il2CppException*)exc;
     return (Il2CppObject*)result;
 }
 
