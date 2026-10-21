@@ -412,7 +412,7 @@ Il2CppObject* il2cpp_runtime_invoke_convert_args(const MethodInfo* method, void*
         mono_gc_wbarrier_generic_store(&params[i], *slot);
     }
     if (exc)
-        *exc = (Il2CppException*)exc;
+        *exc = (Il2CppException*)monoExc;
     return (Il2CppObject*)result;
 }
 
