@@ -3,3 +3,6 @@
 /mono/Scripts/.idea
 /.idea
 
+/Assets/obj
+Assets/IL2CPP2MONO.csproj
+/Assets/.idea

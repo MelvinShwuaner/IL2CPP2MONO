@@ -11,7 +11,7 @@ using UnityEditor.iOS.Xcode;
 using UnityEditor.iOS.Xcode.Extensions;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
-public class InjectMonoShim : IPostGenerateGradleAndroidProject
+public class InjectIL2CPP2MONO : IPostGenerateGradleAndroidProject
 {
     private static void RecreateDirectory(string path)
     {
