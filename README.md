@@ -6,9 +6,7 @@ a unity mod that adds support for mono on mobile.
 it works by replacing the original libil2cpp with a fake, a larper if you will. this fake forwards the calls to mono. and also handles the dlls and stuff.
 <img width="1378" height="576" alt="image" src="https://files.catbox.moe/jjc25v.png" />
 
-most il2cpp types can just be the same as mono. but i made the MethodInfo and the class seperate because they are special. (class can be merged though, il think about it). and it looks like methodinfo is also redundant
-
-the mono build used for this is Unity's one. godot DOES NOT WORK. i have a github action here that can build it.
+the mono build used for this is Unity's one. i have a github action here that can build it.
 the sgen version of mono GC is used.
 
 on IOS, to make monomod work, there are now some internal calls which process detours directly
