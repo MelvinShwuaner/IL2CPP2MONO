@@ -15,7 +15,7 @@ on IOS, to make monomod work, there are now some internal calls which process de
 
 75 of the 241 API calls have NOT been implemented. (basically all of them do nothing or havent been used yet)
 
-It now works on ios, atleast on non-txm devices.
+It now works on ios. tested on 18.7 (non-txm) and 26 (txm)
 
 # Installation (ANDROID)
 
