@@ -284,7 +284,7 @@ foreach (
 endforeach ()
 
 # Add the main fmt library.
-add_library(fmt src/format.cc ${FMT_HEADERS} README.md ChangeLog.md)
+add_library(fmt src/format.cc ${FMT_HEADERS} ChangeLog.md)
 setup_target(fmt PUBLIC)
 set_target_properties(fmt PROPERTIES PUBLIC_HEADER "${FMT_HEADERS}")
 
