@@ -51,7 +51,7 @@
 #include "il2cpp-api-types.h"
 #include "main.cpp"
 #include "mono/metadata/mono-gc.h"
-#include "mono/metadata/unity-liveness.h"
+#include "mono/metadata/unity.h"
 typedef size_t il2cpp_array_size_t;
 #include <mono/jit/jit.h>
 #include <mono/metadata/exception.h>
@@ -106,7 +106,7 @@ int il2cpp_init_utf16(const Il2CppChar* domain_name)
 bool il2cpp_method_is_instance(const MethodInfo* method)
 {
     //LOGCALL();
-    MonoMethod* m = method->originalMethod;
+    MonoMethod* m = (MonoMethod*)method;
     uint32_t flags = mono_method_get_flags(m, nullptr);
     return (flags & METHOD_ATTRIBUTE_STATIC) == 0; // instance methods lack the static flag
 }
@@ -116,8 +116,8 @@ bool il2cpp_class_has_attribute(Il2CppClass* klass, Il2CppClass* attr_class)
     //LOGCALL();
     
 
-    MonoClass* attrKlass = attr_class->original;
-    MonoCustomAttrInfo* attrInfo = mono_custom_attrs_from_class(klass->original);
+    MonoClass* attrKlass = (MonoClass*)attr_class;
+    MonoCustomAttrInfo* attrInfo = mono_custom_attrs_from_class((MonoClass*)klass);
     if (!attrInfo) return false;
     bool has = mono_custom_attrs_has_attr(attrInfo, attrKlass);
     mono_custom_attrs_free(attrInfo);
@@ -127,7 +127,7 @@ bool il2cpp_class_has_attribute(Il2CppClass* klass, Il2CppClass* attr_class)
 void il2cpp_class_set_userdata(Il2CppClass* klass, void* userdata)
 {
     LOGCALL();
-   klass->unity_user_data = userdata;
+    mono_class_set_userdata((MonoClass*)klass, userdata);
 }
 void il2cpp_add_internal_call(const char* name, Il2CppMethodPointer method)
 {
@@ -203,109 +203,109 @@ Il2CppClass* il2cpp_class_from_name(const Il2CppImage* image, const char* namesp
     if (!k) {
         //__android_log_print(ANDROID_LOG_WARN, "il2cpp_shim", "class not found: %s.%s", namespaze, name);
     }
-    return WrapClass(k);
+    return (Il2CppClass*)(k);
 }
 
 Il2CppClass* il2cpp_class_from_il2cpp_type(const Il2CppType* type)
 {
     LOGCALL();
-    return WrapClass(mono_class_from_mono_type((MonoType*)type));
+    return (Il2CppClass*)(mono_class_from_mono_type((MonoType*)type));
 }
 
 Il2CppClass* il2cpp_class_from_type(const Il2CppType* type)
 {
    // LOGCALL();
-    return WrapClass(mono_class_from_mono_type((MonoType*)type));
+    return (Il2CppClass*)(mono_class_from_mono_type((MonoType*)type));
 }
 
 const MethodInfo* il2cpp_class_get_method_from_name(Il2CppClass* klass, const char* name, int argsCount)
 {
     LOGCALL();
     
-    return WrapMethod(mono_class_get_method_from_name(klass->original, name, argsCount));
+    return (MethodInfo*)(mono_class_get_method_from_name((MonoClass*)klass, name, argsCount));
 }
 
 FieldInfo* il2cpp_class_get_field_from_name(Il2CppClass* klass, const char* name)
 {
    // LOGCALL();
-    return (FieldInfo*)mono_class_get_field_from_name(klass->original, name);
+    return (FieldInfo*)mono_class_get_field_from_name((MonoClass*)klass, name);
 }
 
 const MethodInfo* il2cpp_class_get_methods(Il2CppClass* klass, void** iter)
 {
-    return WrapMethod(mono_class_get_methods(klass->original, iter));
+    return (MethodInfo*)(mono_class_get_methods((MonoClass*)klass, iter));
 }
 
 FieldInfo* il2cpp_class_get_fields(Il2CppClass* klass, void** iter)
 {
    // LOGCALL();
-    return (FieldInfo*)mono_class_get_fields(klass->original, iter);
+    return (FieldInfo*)mono_class_get_fields((MonoClass*)klass, iter);
 }
 
 Il2CppClass* il2cpp_class_get_parent(Il2CppClass* klass)
 {
     //LOGCALL();
-    return WrapClass(mono_class_get_parent(klass->original));
+    return (Il2CppClass*)(mono_class_get_parent((MonoClass*)klass));
 }
 
 bool il2cpp_class_is_subclass_of(Il2CppClass* klass, Il2CppClass* klassc, bool check_interfaces)
 {
     //LOGCALL();
-    return mono_class_is_subclass_of(klass->original, klassc->original, check_interfaces);
+    return mono_class_is_subclass_of((MonoClass*)klass, (MonoClass*)klassc, check_interfaces);
 }
 
 bool il2cpp_class_is_assignable_from(Il2CppClass* klass, Il2CppClass* oklass)
 {
     LOGCALL();
-    return mono_class_is_assignable_from(klass->original, oklass->original);
+    return mono_class_is_assignable_from((MonoClass*)klass, (MonoClass*)oklass);
 }
 
 const char* il2cpp_class_get_name(Il2CppClass* klass)
 {
     //LOGCALL();
-    return klass->name;
+    return mono_class_get_name((MonoClass*)klass);
 }
 
 const char* il2cpp_class_get_namespace(Il2CppClass* klass)
 {
     //LOGCALL();
-    return mono_class_get_namespace(klass->original);
+    return mono_class_get_namespace((MonoClass*)klass);
 }
 
 const Il2CppType* il2cpp_class_get_type(Il2CppClass* klass)
 {
     LOGCALL();
-    return (const Il2CppType*)mono_class_get_type(klass->original);
+    return (const Il2CppType*)mono_class_get_type((MonoClass*)klass);
 }
 
 int32_t il2cpp_class_instance_size(Il2CppClass* klass)
 {
     LOGCALL();
-    return mono_class_instance_size(klass->original);
+    return mono_class_instance_size((MonoClass*)klass);
 }
 
 bool il2cpp_class_is_valuetype(const Il2CppClass* klass)
 {
     LOGCALL();
-    return mono_class_is_valuetype(klass->original);
+    return mono_class_is_valuetype((MonoClass*)klass);
 }
 
 const Il2CppImage* il2cpp_class_get_image(Il2CppClass* klass)
 {
     LOGCALL();
-    return (const Il2CppImage*)mono_class_get_image(klass->original);
+    return (const Il2CppImage*)mono_class_get_image((MonoClass*)klass);
 }
 
 Il2CppClass* il2cpp_array_class_get(Il2CppClass* element_class, uint32_t rank)
 {
     LOGCALL();
-    return WrapClass(mono_array_class_get(element_class->original, rank));
+    return (Il2CppClass*)(mono_array_class_get((MonoClass*)element_class, rank));
 }
 
 int il2cpp_class_array_element_size(const Il2CppClass* klass)
 {
     LOGCALL();
-    return mono_class_array_element_size(klass->original);
+    return mono_class_array_element_size((MonoClass*)klass);
 }
 
 // ---------------- object / field ----------------
@@ -313,19 +313,19 @@ int il2cpp_class_array_element_size(const Il2CppClass* klass)
 Il2CppObject* il2cpp_object_new(const Il2CppClass* klass)
 {
     LOGCALL();
-    return (Il2CppObject*)mono_object_new(mono_domain_get(), klass->original);
+    return (Il2CppObject*)mono_object_new(mono_domain_get(), (MonoClass*)klass);
 }
 
 Il2CppClass* il2cpp_object_get_class(Il2CppObject* obj)
 {
     LOGCALL();
-    return WrapClass(mono_object_get_class((MonoObject*)obj));
+    return (Il2CppClass*)(mono_object_get_class((MonoObject*)obj));
 }
 
 const MethodInfo* il2cpp_object_get_virtual_method(Il2CppObject* obj, const MethodInfo* method)
 {
     LOGCALL();
-    return WrapMethod(mono_object_get_virtual_method((MonoObject*)obj, method->originalMethod));
+    return (MethodInfo*)(mono_object_get_virtual_method((MonoObject*)obj, (MonoMethod*)method));
 }
 
 void* il2cpp_object_unbox(Il2CppObject* obj)
@@ -337,7 +337,7 @@ void* il2cpp_object_unbox(Il2CppObject* obj)
 Il2CppObject* il2cpp_value_box(Il2CppClass* klass, void* data)
 {
     LOGCALL();
-    return (Il2CppObject*)mono_value_box(Domain, klass->original, data);
+    return (Il2CppObject*)mono_value_box(Domain, (MonoClass*)klass, data);
 }
 
 void il2cpp_field_get_value(Il2CppObject* obj, FieldInfo* field, void* value)
@@ -373,7 +373,7 @@ void il2cpp_field_static_set_value(FieldInfo* field, void* value)
 Il2CppObject* il2cpp_runtime_invoke(const MethodInfo* method, void* obj, void** params, Il2CppException** exc)
 {
     MonoObject* monoExc = nullptr;
-    MonoObject* result = mono_runtime_invoke(method->originalMethod, obj, params, &monoExc);
+    MonoObject* result = mono_runtime_invoke((MonoMethod*)method, obj, params, &monoExc);
     if (exc) *exc = (Il2CppException*)monoExc;
     return (Il2CppObject*)result;
 }
@@ -385,7 +385,7 @@ Il2CppObject* il2cpp_runtime_invoke_convert_args(const MethodInfo* method, void*
                                                    Il2CppException** exc)
 {
     LOGCALL();
-    MonoMethod* m = method->originalMethod;
+    MonoMethod* m = (MonoMethod*)method;
 
     MonoArray* args = mono_array_new(mono_domain_get(), mono_get_object_class(),
                                      static_cast<uintptr_t>(paramCount));
@@ -413,7 +413,7 @@ Il2CppObject* il2cpp_runtime_invoke_convert_args(const MethodInfo* method, void*
 void il2cpp_runtime_class_init(Il2CppClass* klass)
 {
     LOGCALL();
-    mono_runtime_class_init(mono_class_vtable(mono_domain_get(), klass->original));
+    mono_runtime_class_init(mono_class_vtable(mono_domain_get(), (MonoClass*)klass));
 }
 
 void il2cpp_runtime_object_init(Il2CppObject* obj)
@@ -463,7 +463,7 @@ Il2CppChar* il2cpp_string_chars(Il2CppString* str)
 Il2CppArray* il2cpp_array_new(Il2CppClass* elementTypeInfo, il2cpp_array_size_t length)
 {
     LOGCALL();
-    return (Il2CppArray*)mono_array_new(mono_domain_get(), elementTypeInfo->original, length);
+    return (Il2CppArray*)mono_array_new(mono_domain_get(), (MonoClass*)elementTypeInfo, length);
 }
 
 uint32_t il2cpp_array_length(Il2CppArray* array)
@@ -482,7 +482,7 @@ uint32_t il2cpp_array_get_byte_length(Il2CppArray* array)
 int il2cpp_array_element_size(const Il2CppClass* klass)
 {
     LOGCALL();
-    return mono_array_element_size(klass->original);
+    return mono_array_element_size((MonoClass*)klass);
 }
 
 // ---------------- thread ----------------
@@ -693,19 +693,19 @@ void il2cpp_free(void* ptr)
 Il2CppArray* il2cpp_array_new_specific(Il2CppClass *arrayTypeInfo, il2cpp_array_size_t length)
 {
     LOGCALL2();
-    return (Il2CppArray*)mono_array_new_specific(mono_class_vtable(Domain, arrayTypeInfo->original), length);
+    return (Il2CppArray*)mono_array_new_specific(mono_class_vtable(Domain, (MonoClass*)arrayTypeInfo), length);
 }
 
 Il2CppArray* il2cpp_array_new_full(Il2CppClass *array_class, il2cpp_array_size_t *lengths, il2cpp_array_size *lower_bounds)
 {
     LOGCALL2();
-    return (Il2CppArray*)mono_array_new_full(Domain, array_class->original, lengths, lower_bounds);
+    return (Il2CppArray*)mono_array_new_full(Domain, (MonoClass*)array_class, lengths, lower_bounds);
 }
 
 Il2CppClass* il2cpp_bounded_array_class_get(Il2CppClass *element_class, uint32_t rank, bool bounded)
 {
     LOGCALL();
-    return WrapClass(mono_bounded_array_class_get(element_class->original, rank, bounded));
+    return (Il2CppClass*)(mono_bounded_array_class_get((MonoClass*)element_class, rank, bounded));
 }
 
 // class
@@ -713,7 +713,7 @@ Il2CppClass* il2cpp_bounded_array_class_get(Il2CppClass *element_class, uint32_t
 const Il2CppType* il2cpp_class_enum_basetype(Il2CppClass *klass)
 {
     LOGCALL();
-    MonoType* baseType = mono_class_enum_basetype(klass->original);
+    MonoType* baseType = mono_class_enum_basetype((MonoClass*)klass);
     return (const Il2CppType*)baseType;
 }
 
@@ -721,7 +721,7 @@ Il2CppClass* il2cpp_class_from_system_type(Il2CppReflectionType *type)
 {
     LOGCALL();
     auto* t = (MonoReflectionType*)type;
-    return WrapClass(mono_class_from_mono_type(t->type));
+    return (Il2CppClass*)(mono_class_from_mono_type(t->type));
 }
 
 bool il2cpp_class_is_inited(const Il2CppClass *klass)
@@ -732,25 +732,20 @@ bool il2cpp_class_is_inited(const Il2CppClass *klass)
 
 bool il2cpp_class_is_generic(const Il2CppClass *klass)
 {
-    MonoType* type = mono_class_get_type(klass->original);
-    if (type && mono_type_get_type(type) == 0x15) return false;
-
-    const char* name = klass->name;
-    return name && strchr(name, '`') != nullptr;
+    return mono_class_is_generic((MonoClass*)klass);
 }
 
 bool il2cpp_class_is_inflated(const Il2CppClass *klass)
 {
     LOGCALL();
-    MonoType* type = mono_class_get_type(klass->original);
-    return mono_type_get_type(type) == MONO_TYPE_GENERICINST;
+    return mono_class_is_inflated((MonoClass*)klass);
 }
 
 bool il2cpp_class_has_parent(Il2CppClass *klass, Il2CppClass *klassc)
 {
     LOGCALL();
-    MonoClass* k = klass->original;
-    MonoClass* target = klassc->original;
+    MonoClass* k = (MonoClass*)klass;
+    MonoClass* target = (MonoClass*)klassc;
     while (k != nullptr) {
         if (k == target) {
             return true;
@@ -762,63 +757,63 @@ bool il2cpp_class_has_parent(Il2CppClass *klass, Il2CppClass *klassc)
 
 Il2CppClass* il2cpp_class_get_element_class(Il2CppClass *klass)
 { LOGCALL();
-    return WrapClass(mono_class_get_element_class(klass->original));
+    return (Il2CppClass*)(mono_class_get_element_class((MonoClass*)klass));
 }
 
 const EventInfo* il2cpp_class_get_events(Il2CppClass *klass, void* *iter)
 { LOGCALL();
-    return (EventInfo*)mono_class_get_events(klass->original, iter);
+    return (EventInfo*)mono_class_get_events((MonoClass*)klass, iter);
 }
 
 Il2CppClass* il2cpp_class_get_nested_types(Il2CppClass *klass, void* *iter)
 { LOGCALL();
-    return WrapClass(mono_class_get_nested_types(klass->original, iter));
+    return (Il2CppClass*)(mono_class_get_nested_types((MonoClass*)klass, iter));
 }
 
 Il2CppClass* il2cpp_class_get_interfaces(Il2CppClass *klass, void* *iter)
 { LOGCALL();
-    return WrapClass(mono_class_get_interfaces(klass->original, iter));
+    return (Il2CppClass*)(mono_class_get_interfaces((MonoClass*)klass, iter));
 }
 
 const PropertyInfo* il2cpp_class_get_properties(Il2CppClass *klass, void* *iter)
 { LOGCALL();
-    return (PropertyInfo*)mono_class_get_properties(klass->original, iter);
+    return (PropertyInfo*)mono_class_get_properties((MonoClass*)klass, iter);
 }
 
 const PropertyInfo* il2cpp_class_get_property_from_name(Il2CppClass *klass, const char *name)
 { LOGCALL();
-    return (PropertyInfo*)mono_class_get_property_from_name(klass->original, name);
+    return (PropertyInfo*)mono_class_get_property_from_name((MonoClass*)klass, name);
 }
 
 Il2CppClass* il2cpp_class_get_declaring_type(Il2CppClass* klass)
 { //LOGCALL();
-    return WrapClass(mono_class_get_nesting_type(klass->original));
+    return (Il2CppClass*)(mono_class_get_nesting_type((MonoClass*)klass));
 }
 
 size_t il2cpp_class_num_fields(const Il2CppClass* klass)
 { LOGCALL();
-    return mono_class_num_fields(klass->original);
+    return mono_class_num_fields((MonoClass*)klass);
 }
 
 bool il2cpp_class_is_blittable(const Il2CppClass* klass)
 { LOGCALL();
-    return IsMonoClassBlittable(klass->original);
+    return mono_class_is_blittable((MonoClass*)klass);
 }
 
 int32_t il2cpp_class_value_size(Il2CppClass *klass, uint32_t *align)
 { LOGCALL();
-    return mono_class_value_size(klass->original, align);
+    return mono_class_value_size((MonoClass*)klass, align);
 }
 
 int il2cpp_class_get_flags(const Il2CppClass *klass)
 { LOGCALL();
-    return mono_class_get_flags(klass->original);
+    return mono_class_get_flags((MonoClass*)klass);
 }
 
 bool il2cpp_class_is_abstract(const Il2CppClass *klass)
 { //LOGCALL();
     
-    auto flags = mono_class_get_flags(klass->original);
+    auto flags = mono_class_get_flags((MonoClass*)klass);
     bool is_abstract = (flags & TYPE_ATTRIBUTE_ABSTRACT) != 0;
     return is_abstract;
 }
@@ -826,12 +821,12 @@ bool il2cpp_class_is_abstract(const Il2CppClass *klass)
 bool il2cpp_class_is_interface(const Il2CppClass *klass)
 { //LOGCALL();
     
-    return MONO_CLASS_IS_INTERFACE(klass->original);
+    return MONO_CLASS_IS_INTERFACE((MonoClass*)klass);
 }
 
 uint32_t il2cpp_class_get_type_token(Il2CppClass *klass)
 { LOGCALL();
-    return mono_class_get_type_token(klass->original);
+    return mono_class_get_type_token((MonoClass*)klass);
 }
 
 bool il2cpp_class_has_references(Il2CppClass *klass)
@@ -843,18 +838,18 @@ bool il2cpp_class_is_enum(const Il2CppClass *klass)
 { //LOGCALL();
     
     
-    return mono_class_is_enum(klass->original);
+    return mono_class_is_enum((MonoClass*)klass);
 }
 
 const char *il2cpp_class_get_assemblyname(const Il2CppClass *klass)
 { //LOGCALL();
     
-    return GetAssemblyName(klass->original);
+    return GetAssemblyName((MonoClass*)klass);
 }
 
 int il2cpp_class_get_rank(const Il2CppClass *klass)
 { LOGCALL();
-    return mono_class_get_rank(klass->original);
+    return mono_class_get_rank((MonoClass*)klass);
 }
 
 uint32_t il2cpp_class_get_data_size(const Il2CppClass *klass)
@@ -1023,7 +1018,7 @@ int il2cpp_field_get_flags(FieldInfo *field)
 Il2CppClass* il2cpp_field_get_parent(FieldInfo *field)
 {
     //LOGCALL();
-    return WrapClass(mono_field_get_parent((MonoClassField*)field));
+    return (Il2CppClass*)(mono_field_get_parent((MonoClassField*)field));
 }
 
 size_t il2cpp_field_get_offset(FieldInfo *field)
@@ -1045,7 +1040,7 @@ bool il2cpp_field_has_attribute(FieldInfo *field, Il2CppClass *attr_class)
 { //LOGCALL();
     MonoCustomAttrInfo* attr = mono_custom_attrs_from_field(mono_field_get_parent((MonoClassField*)field), (MonoClassField*)field);
     if (!attr) return false;
-    bool result = mono_custom_attrs_has_attr(attr, attr_class->original);
+    bool result = mono_custom_attrs_has_attr(attr, (MonoClass*)attr_class);
     mono_custom_attrs_free(attr);
     return result;
 }
@@ -1226,7 +1221,7 @@ void* il2cpp_unity_liveness_allocate_struct(Il2CppClass* filter, int max_object_
     state->reallocate_callback = reallocate;
     state->il2cpp_userdata = userdata;
 
-    MonoClass* mono_filter = filter->original;
+    MonoClass* mono_filter = (MonoClass*)filter;
 
     state->mono_state =
         mono_unity_liveness_allocate_struct(
@@ -1258,7 +1253,7 @@ void* il2cpp_unity_liveness_calculation_begin(Il2CppClass* filter, int max_objec
     state->il2cpp_userdata   = userdata;
 
     state->mono_state = mono_unity_liveness_allocate_struct(
-        filter->original,
+        (MonoClass*)filter,
         static_cast<guint>(max_object_count),
         liveness_register_trampoline,
         state,
@@ -1311,75 +1306,76 @@ void il2cpp_unity_liveness_finalize(Il2CppLivenessState* state)
 
 const Il2CppType* il2cpp_method_get_return_type(const MethodInfo* method)
 { LOGCALL();
-    return method->return_type;
+    return (Il2CppType*)mono_signature_get_return_type(((MonoMethod*)method)->signature);
 }
 
 const MethodInfo* il2cpp_method_get_from_reflection(const Il2CppReflectionMethod *method)
 { LOGCALL();
     const MonoReflectionMethod* monoMethod = (MonoReflectionMethod*)method;
-    return WrapMethod(monoMethod->method);
+    return (MethodInfo*)(monoMethod->method);
 }
 
 Il2CppReflectionMethod* il2cpp_method_get_object(const MethodInfo *method, Il2CppClass *refclass)
 { LOGCALL();
-    return (Il2CppReflectionMethod* )mono_method_get_object(Domain, method->originalMethod,  refclass ? refclass->original : nullptr);
+    return (Il2CppReflectionMethod* )mono_method_get_object(Domain, (MonoMethod*)method, (MonoClass*)refclass);
 }
 
 const char* il2cpp_method_get_name(const MethodInfo *method)
 { //LOGCALL();
-    return mono_method_get_name(method->originalMethod);
+    return mono_method_get_name((MonoMethod*)method);
 }
 
 bool il2cpp_method_is_generic(const MethodInfo *method)
 { LOGCALL();
-    return method->is_generic;
+    return ((MonoMethod*)method)->is_generic;
 }
 
 bool il2cpp_method_is_inflated(const MethodInfo *method)
 { LOGCALL();
-    return method->is_inflated;
+    return ((MonoMethod*)method)->is_inflated;
 }
 
 uint32_t il2cpp_method_get_param_count(const MethodInfo *method)
 { //LOGCALL();
-    return method->parameters_count;
+    return ((MonoMethod*)method)->signature->param_count;
 }
 
-const Il2CppType* il2cpp_method_get_param(const MethodInfo *method, uint32_t index)
+const Il2CppType* il2cpp_method_get_param(const MethodInfo *Method, uint32_t index)
 { LOGCALL();
-    if (index < method->parameters_count) {
-        return method->parameters[index];
+    auto* sig = ((MonoMethod*)Method)->signature;
+    if (index < sig->param_count) {
+        return (Il2CppType*)sig->params[index];
     }
     return NULL;
 }
 
 Il2CppClass* il2cpp_method_get_class(const MethodInfo *method)
 { LOGCALL();
-    return method->klass;
+    return (Il2CppClass*)((MonoMethod*)method)->klass;
 }
 
 bool il2cpp_method_has_attribute(const MethodInfo *method, Il2CppClass *attr_class)
 { LOGCALL();
-    MonoCustomAttrInfo* attr = mono_custom_attrs_from_method(method->originalMethod);
+    MonoCustomAttrInfo* attr = mono_custom_attrs_from_method((MonoMethod*)method);
     if (!attr) return false;
-    bool result = mono_custom_attrs_has_attr(attr, attr_class->original);
+    bool result = mono_custom_attrs_has_attr(attr, (MonoClass*)attr_class);
     mono_custom_attrs_free(attr);
     return result;
 }
 
 Il2CppClass* il2cpp_method_get_declaring_type(const MethodInfo* method)
 { LOGCALL();
-    return method->klass;
+    return (Il2CppClass*)((MonoMethod*)method)->klass;
 }
 
 uint32_t il2cpp_method_get_flags(const MethodInfo *method, uint32_t *iflags)
 { LOGCALL();
-    return method->flags;
+    return mono_method_get_flags((MonoMethod*)method, iflags);
 }
 
 uint32_t il2cpp_method_get_token(const MethodInfo *method)
 { LOGCALL();
-    return method->token;
+    return ((MonoMethod*)method)->token;
 }
 
 const char *il2cpp_method_get_param_name(const MethodInfo *method, uint32_t index)
@@ -1396,17 +1392,17 @@ const char* il2cpp_property_get_name(PropertyInfo *prop)
 
 const MethodInfo* il2cpp_property_get_get_method(PropertyInfo *prop)
 { LOGCALL();
-    return WrapMethod(mono_property_get_get_method((MonoProperty*)prop));
+    return (MethodInfo*)(mono_property_get_get_method((MonoProperty*)prop));
 }
 
 const MethodInfo* il2cpp_property_get_set_method(PropertyInfo *prop)
 { LOGCALL();
-    return WrapMethod(mono_property_get_set_method((MonoProperty*)prop));
+    return (MethodInfo*)(mono_property_get_set_method((MonoProperty*)prop));
 }
 
 Il2CppClass* il2cpp_property_get_parent(PropertyInfo *prop)
 { LOGCALL();
-    return WrapClass(mono_property_get_parent((MonoProperty*)prop));
+    return (Il2CppClass*)(mono_property_get_parent((MonoProperty*)prop));
 }
 
 uint32_t il2cpp_property_get_flags(PropertyInfo *prop)
@@ -1550,16 +1546,16 @@ Il2CppClass* il2cpp_type_get_class_or_element_class(const Il2CppType *type)
     if (typeEnum == MONO_TYPE_SZARRAY || typeEnum == MONO_TYPE_ARRAY) {
         // Array type — get the element class, not the array class itself
         MonoClass* arrayClass = mono_type_get_class(t);
-        return WrapClass(mono_class_get_element_class(arrayClass));
+        return (Il2CppClass*)(mono_class_get_element_class(arrayClass));
     }
     if (typeEnum == MONO_TYPE_PTR) {
         // Pointer type — get what it points to
         MonoType* pointedType = mono_type_get_ptr_type(t);
-        return WrapClass(mono_class_from_mono_type(pointedType));
+        return (Il2CppClass*)(mono_class_from_mono_type(pointedType));
     }
 
     // Ordinary case — just the class for this type
-    return WrapClass(mono_class_from_mono_type(t));
+    return (Il2CppClass*)(mono_class_from_mono_type(t));
 }
 
 char* il2cpp_type_get_name(const Il2CppType *type)
@@ -1699,7 +1695,7 @@ void il2cpp_unity_install_unitytls_interface(const void* unitytlsInterfaceStruct
 // Custom Attributes
 Il2CppCustomAttrInfo* il2cpp_custom_attrs_from_class(Il2CppClass *klass)
 { LOGCALL();
-    return (Il2CppCustomAttrInfo*)mono_custom_attrs_from_class(klass->original);
+    return (Il2CppCustomAttrInfo*)mono_custom_attrs_from_class((MonoClass*)klass);
 }
 
 Il2CppCustomAttrInfo* il2cpp_custom_attrs_from_method(const MethodInfo * method)
@@ -1715,12 +1711,12 @@ Il2CppCustomAttrInfo* il2cpp_custom_attrs_from_field(const FieldInfo * field)
 
 bool il2cpp_custom_attrs_has_attr(Il2CppCustomAttrInfo *ainfo, Il2CppClass *attr_klass)
 { LOGCALL();
-    return mono_custom_attrs_has_attr((MonoCustomAttrInfo*)ainfo, attr_klass->original);
+    return mono_custom_attrs_has_attr((MonoCustomAttrInfo*)ainfo, (MonoClass*)attr_klass);
 }
 
 Il2CppObject* il2cpp_custom_attrs_get_attr(Il2CppCustomAttrInfo *ainfo, Il2CppClass *attr_klass)
 { LOGCALL();
-    return (Il2CppObject*)mono_custom_attrs_get_attr((MonoCustomAttrInfo*)ainfo, attr_klass->original);
+    return (Il2CppObject*)mono_custom_attrs_get_attr((MonoCustomAttrInfo*)ainfo, (MonoClass*)attr_klass);
 }
 
 Il2CppArray*  il2cpp_custom_attrs_construct(Il2CppCustomAttrInfo *ainfo)
@@ -1744,7 +1740,7 @@ void il2cpp_type_get_name_chunked(const Il2CppType * type, void(*chunkReportFunc
 
 int il2cpp_class_get_userdata_offset()
 { LOGCALL();
-    return offsetof(struct Il2CppClass, unity_user_data);
+    return mono_class_get_userdata_offset();
 }
 
 void il2cpp_class_for_each(void(*klassReportFunc)(Il2CppClass* klass, void* userData), void* userData)

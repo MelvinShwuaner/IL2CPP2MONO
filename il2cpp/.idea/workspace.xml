@@ -34,7 +34,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/InternalCalls.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/InternalCalls.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -48,7 +47,7 @@
   <component name="EmbeddingIndexingInfo">
     <option name="cachedIndexableFilesCount" value="58" />
   </component>
-  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:IOS" />
+  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Android" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
   </component>
@@ -265,7 +264,7 @@
       <workItem from="1792594881855" duration="467000" />
       <workItem from="1792595429416" duration="91000" />
       <workItem from="1792595600477" duration="2551000" />
-      <workItem from="1792600648502" duration="12000" />
+      <workItem from="1792600648502" duration="321000" />
     </task>
     <servers />
   </component>

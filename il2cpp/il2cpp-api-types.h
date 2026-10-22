@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "mono/metadata/unity-liveness.h"
+#include "mono/metadata/unity.h"
 #include "mono/metadata/metadata.h"
 #include "mono/metadata/object-forward.h"
 
@@ -10,11 +10,7 @@
 #define bool uint8_t
 #endif // !__cplusplus
 
-typedef struct Il2CppClass {
-    void *unity_user_data;
-    MonoClass* original; //we can just use the original as it has user data, but it would be hard to include without fucking it up
-    const char* name;
-} Il2CppClass;
+typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
 typedef struct FieldInfo FieldInfo;
@@ -134,45 +130,8 @@ typedef enum
     IL2CPP_UNHANDLED_POLICY_CURRENT
 } Il2CppRuntimeUnhandledExceptionPolicy;
 typedef void(*Il2CppMethodPointer)();
-//typedef struct Il2CppRGCTXData Il2CppRGCTXData;
-//typedef struct Il2CppMetadataMethodDefinitionHandle_t* Il2CppMetadataMethodDefinitionHandle;
-//typedef struct Il2CppGenericMethod Il2CppGenericMethod;
-//typedef struct Il2CppMetadataGenericContainerHandle_t* Il2CppMetadataGenericContainerHandle;
 typedef void (*InvokerMethod)(Il2CppMethodPointer, const void*, void*, void**, void*);
-typedef struct MethodInfo
-{
-    Il2CppMethodPointer methodPointer;
-    Il2CppMethodPointer virtualMethodPointer;
-    InvokerMethod invoker_method;
-    const char* name;
-    Il2CppClass *klass;
-    const Il2CppType *return_type;
-    const Il2CppType** parameters;
-
-   /* union
-    {
-        const Il2CppRGCTXData* rgctx_data;
-        Il2CppMetadataMethodDefinitionHandle methodMetadataHandle;
-    };
-
-
-    union
-    {
-        const Il2CppGenericMethod* genericMethod;
-        Il2CppMetadataGenericContainerHandle genericContainerHandle;
-    };*/
-
-    uint32_t token;
-    uint16_t flags;
-    uint16_t iflags;
-    uint16_t slot;
-    uint8_t parameters_count;
-    uint8_t is_generic : 1;
-    uint8_t is_inflated : 1;
-    uint8_t wrapper_type : 1;
-    uint8_t has_full_generic_sharing_signature : 1;
-    MonoMethod* originalMethod;
-} MethodInfo;
+typedef struct MethodInfo MethodInfo;
 typedef struct Il2CppStackFrameInfo
 {
     const MethodInfo *method;

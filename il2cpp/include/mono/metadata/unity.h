@@ -14,5 +14,9 @@ MONO_API MONO_RT_EXTERNAL_ONLY void mono_unity_liveness_finalize(LivenessState *
 MONO_API MONO_RT_EXTERNAL_ONLY void mono_unity_liveness_free_struct(LivenessState *state);
 MONO_API MONO_RT_EXTERNAL_ONLY void mono_unity_liveness_calculation_from_root(MonoObject *root, LivenessState *state);
 MONO_API MONO_RT_EXTERNAL_ONLY void mono_unity_liveness_calculation_from_statics(LivenessState *state);
-
+MONO_API MONO_RT_EXTERNAL_ONLY int mono_class_get_userdata_offset();
+MONO_API MONO_RT_EXTERNAL_ONLY void mono_class_set_userdata(MonoClass* klass, void* userdata);
+MONO_API MONO_RT_EXTERNAL_ONLY bool mono_class_is_generic(MonoClass *klass);
+MONO_API MONO_RT_EXTERNAL_ONLY bool mono_class_is_inflated(MonoClass *klass);
+MONO_API MONO_RT_EXTERNAL_ONLY bool mono_class_is_blittable(MonoClass *klass);
 MONO_END_DECLS
