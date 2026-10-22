@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 #define MONO_IOS_JIT_ALIGNMENT 16
@@ -73,6 +74,7 @@ static int round_size (size_t size, size_t alignment, size_t *rounded_size);
 static int startup_capacity (size_t *capacity);
 static int debugger_status (int *is_attached);
 static int debugger_protocol_required (int *is_required);
+static int hardware_debugger_protocol_required (const char *machine, int *is_required);
 static int code_signing_status (int *is_debugged);
 static int verify_protection (void *address, size_t size, vm_prot_t protection, const char *stage);
 static int verify_arena (MonoIosJitArena *arena, size_t page_size);
@@ -777,8 +779,26 @@ debugger_protocol_required (int *is_required)
 	if (__builtin_available (iOS 26.0, *)) {
 		uint32_t monitor;
 		size_t size = sizeof (monitor);
-		if (sysctlbyname ("security.codesigning.monitor", &monitor, &size, NULL, 0) != 0)
-			return report_prepare_error ("code-signing monitor", errno, KERN_SUCCESS, "sysctl security.codesigning.monitor");
+		if (sysctlbyname ("security.codesigning.monitor", &monitor, &size, NULL, 0) != 0) {
+			int monitor_error = errno;
+			struct utsname system_info;
+			int error;
+
+			if (monitor_error != EPERM && monitor_error != EACCES && monitor_error != ENOENT &&
+			    monitor_error != ENOTSUP && monitor_error != ENOSYS)
+				return report_prepare_error ("code-signing monitor", monitor_error, KERN_SUCCESS, "sysctl security.codesigning.monitor");
+			memset (&system_info, 0, sizeof (system_info));
+			if (uname (&system_info) != 0)
+				return report_prepare_error ("hardware model", errno, KERN_SUCCESS, "uname");
+			if (!memchr (system_info.machine, '\0', sizeof (system_info.machine)))
+				return report_prepare_error ("hardware model", EIO, KERN_SUCCESS, "unterminated uname machine");
+			error = hardware_debugger_protocol_required (system_info.machine, is_required);
+			if (error)
+				return error;
+			os_log_info (OS_LOG_DEFAULT, "Mono iOS JIT monitor query unavailable: errno=%d (%{public}s) model=%{public}s path=%{public}s",
+			             monitor_error, strerror (monitor_error), system_info.machine, *is_required ? "StikDebug TXM" : "ordinary debugger");
+			return 0;
+		}
 		if (size != sizeof (monitor))
 			return report_prepare_error ("code-signing monitor", EIO, KERN_SUCCESS, "unexpected monitor size");
 		if (monitor == MONO_IOS_JIT_MONITOR_TXM)
@@ -786,6 +806,44 @@ debugger_protocol_required (int *is_required)
 		else if (monitor != MONO_IOS_JIT_MONITOR_NONE && monitor != MONO_IOS_JIT_MONITOR_PPL)
 			return report_prepare_error ("code-signing monitor", EINVAL, KERN_SUCCESS, "unknown monitor type");
 	}
+	return 0;
+}
+
+static int
+hardware_debugger_protocol_required (const char *machine, int *is_required)
+{
+	const char *version;
+	char *end;
+	unsigned long major;
+	unsigned long minor;
+	int is_ipad;
+
+	if (strncmp (machine, "iPhone", 6) == 0) {
+		version = machine + 6;
+		is_ipad = 0;
+	} else if (strncmp (machine, "iPad", 4) == 0) {
+		version = machine + 4;
+		is_ipad = 1;
+	} else {
+		return report_prepare_error ("hardware model", ENOTSUP, KERN_SUCCESS, "unrecognized uname machine family");
+	}
+	if (*version < '0' || *version > '9')
+		return report_prepare_error ("hardware model", EINVAL, KERN_SUCCESS, "invalid uname machine version");
+	errno = 0;
+	major = strtoul (version, &end, 10);
+	if (errno || !major || major > UINT32_MAX || *end != ',')
+		return report_prepare_error ("hardware model", EINVAL, KERN_SUCCESS, "invalid uname machine version");
+	version = end + 1;
+	if (*version < '0' || *version > '9')
+		return report_prepare_error ("hardware model", EINVAL, KERN_SUCCESS, "invalid uname machine version");
+	errno = 0;
+	minor = strtoul (version, &end, 10);
+	if (errno || minor > UINT32_MAX || *end)
+		return report_prepare_error ("hardware model", EINVAL, KERN_SUCCESS, "invalid uname machine version");
+	if (__builtin_available (iOS 27.0, *))
+		*is_required = strcmp (machine, "iPad8,11") != 0 && strcmp (machine, "iPad8,12") != 0;
+	else
+		*is_required = major > 14 || (major == 14 && minor >= (is_ipad ? 5u : 2u));
 	return 0;
 }
 
