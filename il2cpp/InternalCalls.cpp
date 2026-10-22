@@ -2,10 +2,10 @@
 #include <unordered_map>
 #include <mutex>
 #include "il2cpp-api-types.h"
+#include "Platform.h"
 #include "mono/metadata/loader.h"
 #include "mono/metadata/object.h"
-
-#include "mono/metadata/tabledefs.h"
+#include "mono/metadata/appdomain.h"
 namespace Interceptors {
     struct Interceptor {
         Interceptor(Il2CppMethodPointer m, Il2CppMethodPointer* o) : method(m), original(o) {}
@@ -55,8 +55,15 @@ namespace Interceptors {
     static void GetComponentsForListInternal(MonoObject* obj, Il2CppReflectionType* type, MonoObject* list) {
         originalmethod(obj, type, list);
     }*/
+    static MonoString* PersistentDataOverride() {
+        const char* path = ExternalPath.c_str();
+        return mono_string_new(mono_domain_get(), path);
+    }
 }
 static void LoadInterceptors() {
     //Interceptors::InterceptorMap["UnityEngine.Component::GetComponentsForListInternal"] =
        // new Interceptors::Interceptor((Il2CppMethodPointer)&Interceptors::GetComponentsForListInternal, (Il2CppMethodPointer*)&Interceptors::originalmethod);
+#if !ANDROID
+    AddInternalCall("UnityEngine.Application::get_persistentDataPath", (Il2CppMethodPointer)&Interceptors::PersistentDataOverride);
+#endif
 }
