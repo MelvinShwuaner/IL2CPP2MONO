@@ -33,9 +33,7 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/InternalCalls.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/InternalCalls.cpp" afterDir="false" />
-    </list>
+    <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -47,7 +45,7 @@
   <component name="EmbeddingIndexingInfo">
     <option name="cachedIndexableFilesCount" value="58" />
   </component>
-  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Android" />
+  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:IOS" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
   </component>
@@ -266,6 +264,7 @@
       <workItem from="1792595600477" duration="2551000" />
       <workItem from="1792600648502" duration="321000" />
       <workItem from="1792670010322" duration="3965000" />
+      <workItem from="1792701533099" duration="635000" />
     </task>
     <servers />
   </component>

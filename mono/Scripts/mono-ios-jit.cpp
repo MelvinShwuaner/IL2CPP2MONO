@@ -18,6 +18,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/utsname.h>
+#include <time.h>
 #include <unistd.h>
 
 #define MONO_IOS_JIT_ALIGNMENT 16
@@ -35,6 +36,9 @@
 #define MONO_IOS_JIT_BRANCH 0x14000000u
 #define MONO_IOS_JIT_LDR_X15 0x5800004fu
 #define MONO_IOS_JIT_BR_X15 0xd61f01e0u
+#define MONO_IOS_JIT_DETACH_TIMEOUT_SECONDS 1
+#define MONO_IOS_JIT_DETACH_POLL_NANOSECONDS 10000000L
+#define MONO_IOS_JIT_NANOSECONDS_PER_SECOND 1000000000L
 
 typedef struct _MonoIosJitRange MonoIosJitRange;
 typedef struct _MonoIosJitArena MonoIosJitArena;
@@ -73,6 +77,7 @@ static void write_arena_memory (MonoIosJitArena *arena, void *address, const voi
 static int round_size (size_t size, size_t alignment, size_t *rounded_size);
 static int startup_capacity (size_t *capacity);
 static int debugger_status (int *is_attached);
+static int wait_for_debugger_detach (void);
 static int debugger_protocol_required (int *is_required);
 static int hardware_debugger_protocol_required (const char *machine, int *is_required);
 static int code_signing_status (int *is_debugged);
@@ -226,13 +231,8 @@ mono_ios_jit_prepare (size_t capacity)
 detach:
 	if (use_debugger_protocol) {
 		detach_debugger ();
-		if (!error) {
-			error = debugger_status (&is_attached);
-			if (error)
-				report_prepare_error ("debugger detach check", error, KERN_SUCCESS, "sysctl process status");
-			else if (is_attached)
-				error = report_prepare_error ("debugger detach check", EBUSY, KERN_SUCCESS, "P_TRACED remains set after debugger detach");
-		}
+		if (!error)
+			error = wait_for_debugger_detach ();
 	}
 	if (!error)
 		error = verify_arena (arena, (size_t)page_size);
@@ -871,6 +871,46 @@ debugger_status (int *is_attached)
 		return EIO;
 	*is_attached = (process.kp_proc.p_flag & P_TRACED) != 0;
 	return 0;
+}
+
+static int
+wait_for_debugger_detach (void)
+{
+	struct timespec deadline;
+	int is_attached;
+	int error = debugger_status (&is_attached);
+
+	if (error)
+		return report_prepare_error ("debugger detach check", error, KERN_SUCCESS, "sysctl process status");
+	if (!is_attached)
+		return 0;
+	if (clock_gettime (CLOCK_MONOTONIC, &deadline) != 0)
+		return report_prepare_error ("debugger detach clock", errno, KERN_SUCCESS, "clock_gettime CLOCK_MONOTONIC");
+	deadline.tv_sec += MONO_IOS_JIT_DETACH_TIMEOUT_SECONDS;
+	for (;;) {
+		struct timespec now;
+		int has_expired;
+
+		if (clock_gettime (CLOCK_MONOTONIC, &now) != 0)
+			return report_prepare_error ("debugger detach clock", errno, KERN_SUCCESS, "clock_gettime CLOCK_MONOTONIC");
+		has_expired = now.tv_sec > deadline.tv_sec || (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec);
+		if (!has_expired) {
+			struct timespec delay = { 0, MONO_IOS_JIT_DETACH_POLL_NANOSECONDS };
+			int64_t remaining_nanoseconds = (int64_t)(deadline.tv_sec - now.tv_sec) * MONO_IOS_JIT_NANOSECONDS_PER_SECOND + deadline.tv_nsec - now.tv_nsec;
+
+			if (remaining_nanoseconds < delay.tv_nsec)
+				delay.tv_nsec = (long)remaining_nanoseconds;
+			if (nanosleep (&delay, NULL) != 0 && errno != EINTR)
+				return report_prepare_error ("debugger detach wait", errno, KERN_SUCCESS, "nanosleep");
+		}
+		error = debugger_status (&is_attached);
+		if (error)
+			return report_prepare_error ("debugger detach check", error, KERN_SUCCESS, "sysctl process status");
+		if (!is_attached)
+			return 0;
+		if (has_expired)
+			return report_prepare_error ("debugger detach timeout", EBUSY, KERN_SUCCESS, "P_TRACED remains set; capture StikDebug detachResponse");
+	}
 }
 
 static int
