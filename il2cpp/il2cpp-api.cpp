@@ -1787,9 +1787,10 @@ void il2cpp_profiler_install_thread(Il2CppProfileThreadFunc start, Il2CppProfile
 }
 
 //#endif
-// Android
+#if ANDROID
 void il2cpp_unity_set_android_network_up_state_func(Il2CppAndroidUpStateFunc func)
 { LOGCALL2();
-    //AndroidRuntime::SetNetworkUpStateFunc(func);
+    //mono_unity_set_android_network_up_state_func(func); doesnt exist for some reason
 }
+#endif
 }

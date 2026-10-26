@@ -19,4 +19,6 @@ MONO_API MONO_RT_EXTERNAL_ONLY void mono_class_set_userdata(MonoClass* klass, vo
 MONO_API MONO_RT_EXTERNAL_ONLY bool mono_class_is_generic(MonoClass *klass);
 MONO_API MONO_RT_EXTERNAL_ONLY bool mono_class_is_inflated(MonoClass *klass);
 MONO_API MONO_RT_EXTERNAL_ONLY bool mono_class_is_blittable(MonoClass *klass);
+typedef uint8_t (*android_network_up_state)(const char* ifName, uint8_t* is_up);
+MONO_API MONO_RT_EXTERNAL_ONLY void mono_unity_set_android_network_up_state_func(android_network_up_state func);
 MONO_END_DECLS
