@@ -36,8 +36,6 @@
     <list default="true" id="ea61becb-896d-40df-9f05-78f9a2610ec6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/il2cpp-api.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/il2cpp-api.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/include/mono/metadata/unity.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/mono/metadata/unity.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/libs/ios/libmonosgen-2.0.a" beforeDir="false" afterPath="$PROJECT_DIR$/libs/ios/libmonosgen-2.0.a" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -273,6 +271,7 @@
       <workItem from="1792774131884" duration="300000" />
       <workItem from="1792857273364" duration="19000" />
       <workItem from="1792857356166" duration="259000" />
+      <workItem from="1793284684760" duration="2736000" />
     </task>
     <servers />
   </component>

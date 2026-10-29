@@ -80,14 +80,8 @@ void il2cpp2mono_add_icall_interceptor(const char* name, Il2CppMethodPointer int
 Il2CppMethodPointer* il2cpp2mono_get_delegate(const char* AssemblyPath, const char* klass, const char* method, int paramcount) {
     auto pair = SplitFullNameIntoComponents(klass);
     MonoAssembly* assembly = mono_domain_assembly_open(Domain, AssemblyPath);
-    if (!assembly)
-        return nullptr;
     MonoClass* Class = mono_class_from_name(mono_assembly_get_image(assembly), pair.first.c_str(), pair.second.c_str());
-    if (!Class)
-        return nullptr;
     MonoMethod* Method = mono_class_get_method_from_name(Class, method, paramcount);
-    if (!Method)
-        return nullptr;
     return (Il2CppMethodPointer*) mono_compile_method(Method);
 }
 int il2cpp_init(const char* domain_name)
@@ -221,8 +215,12 @@ Il2CppClass* il2cpp_class_from_type(const Il2CppType* type)
 const MethodInfo* il2cpp_class_get_method_from_name(Il2CppClass* klass, const char* name, int argsCount)
 {
     LOGCALL();
-    
-    return (MethodInfo*)(mono_class_get_method_from_name((MonoClass*)klass, name, argsCount));
+    for (auto* current = (MonoClass*)klass; current; current = mono_class_get_parent(current)) {
+        MonoMethod* method = mono_class_get_method_from_name(current, name, argsCount);
+        if (method)
+            return (const MethodInfo*)method;
+    }
+    return nullptr;
 }
 
 FieldInfo* il2cpp_class_get_field_from_name(Il2CppClass* klass, const char* name)
@@ -349,7 +347,8 @@ void il2cpp_field_get_value(Il2CppObject* obj, FieldInfo* field, void* value)
 void il2cpp_field_set_value(Il2CppObject* obj, FieldInfo* field, void* value)
 {
     LOGCALL();
-    mono_field_set_value((MonoObject*)obj, (MonoClassField*)field, value);
+    bool isPointer = mono_type_get_type(mono_field_get_type((MonoClassField*)field)) == MONO_TYPE_PTR;
+    mono_field_set_value((MonoObject*)obj, (MonoClassField*)field, isPointer ? &value : value);
 }
 
 void il2cpp_field_static_get_value(FieldInfo* field, void* value)
@@ -476,7 +475,7 @@ uint32_t il2cpp_array_get_byte_length(Il2CppArray* array)
 {
     LOGCALL();
     MonoClass* elemClass = mono_object_get_class((MonoObject*)array);
-    return (uint32_t)(mono_array_length((MonoArray*)array) * mono_class_array_element_size(elemClass));
+    return (uint32_t)(mono_array_length((MonoArray*)array) * mono_array_element_size(elemClass));
 }
 
 int il2cpp_array_element_size(const Il2CppClass* klass)
@@ -1158,7 +1157,17 @@ void il2cpp_gchandle_foreach_get_target(void(*func)(void*, void*), void* userDat
 
 void il2cpp_gc_wbarrier_set_field(Il2CppObject *obj, void **targetAddress, void *object)
 { LOGCALL();
-    mono_gc_wbarrier_set_field((MonoObject*)obj, targetAddress, (MonoObject*)object);
+    auto* value = static_cast<MonoObject*>(object);
+    if (obj != nullptr) {
+        mono_gc_wbarrier_set_field(
+            reinterpret_cast<MonoObject*>(obj),
+            targetAddress,
+            value);
+    } else {
+        mono_gc_wbarrier_generic_store(
+            targetAddress,
+            value);
+    }
 }
 
 bool il2cpp_gc_has_strict_wbarriers()
@@ -1434,15 +1443,21 @@ void il2cpp_runtime_object_init_exception(Il2CppObject *obj, Il2CppException **e
     MonoClass* klass = mono_object_get_class(mono_obj);
     MonoMethod* ctor =
         mono_class_get_method_from_name(klass, ".ctor", 0);
+    MonoObject* monoExc = nullptr;
     if (ctor == nullptr) {
+        if (exc)
+            *exc = reinterpret_cast<Il2CppException*>(
+                mono_get_exception_missing_method(mono_class_get_name(klass), ".ctor"));
         return;
     }
     mono_runtime_invoke(
         ctor,
-        mono_obj,
+        mono_class_is_valuetype(klass) ? mono_object_unbox(mono_obj) : mono_obj,
         nullptr,
-        (MonoObject**)exc
+        &monoExc
     );
+    if (exc)
+        *exc = reinterpret_cast<Il2CppException*>(monoExc);
 }
 
 void il2cpp_runtime_unhandled_exception_policy_set(Il2CppRuntimeUnhandledExceptionPolicy value)
@@ -1542,20 +1557,10 @@ Il2CppClass* il2cpp_type_get_class_or_element_class(const Il2CppType *type)
 { LOGCALL();
     MonoType* t = (MonoType*)type;
     int typeEnum = mono_type_get_type(t);
-
-    if (typeEnum == MONO_TYPE_SZARRAY || typeEnum == MONO_TYPE_ARRAY) {
-        // Array type — get the element class, not the array class itself
-        MonoClass* arrayClass = mono_type_get_class(t);
-        return (Il2CppClass*)(mono_class_get_element_class(arrayClass));
-    }
-    if (typeEnum == MONO_TYPE_PTR) {
-        // Pointer type — get what it points to
-        MonoType* pointedType = mono_type_get_ptr_type(t);
-        return (Il2CppClass*)(mono_class_from_mono_type(pointedType));
-    }
-
-    // Ordinary case — just the class for this type
-    return (Il2CppClass*)(mono_class_from_mono_type(t));
+    MonoClass* klass = mono_class_from_mono_type(t);
+    if (typeEnum == MONO_TYPE_SZARRAY || typeEnum == MONO_TYPE_ARRAY)
+        klass = mono_class_get_element_class(klass);
+    return (Il2CppClass*)klass;
 }
 
 char* il2cpp_type_get_name(const Il2CppType *type)
