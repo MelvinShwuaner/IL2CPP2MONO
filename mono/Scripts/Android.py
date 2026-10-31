@@ -1,9 +1,11 @@
 from pathlib import Path
 
-def edit(path, old, new):
+def edit(path, old, new, expected=1):
   text = path.read_text()
-  if text.count(old) != 1:
-      raise RuntimeError(f"{path}: expected exactly one match for {old!r}")
+  if text.count(old) != expected:
+    raise RuntimeError(
+        f"{path}: expected {expected} matches for {old!r}, found {count}"
+    )
   path.write_text(text.replace(old, new))
     
 path = Path("mono/metadata/mono-gc.h")
@@ -26,3 +28,21 @@ new = (
 )
 
 edit(path, old, new)
+
+path = Path("mono/sgen/sgen-marksweep.c")
+
+edit(
+    path,
+    "scan_func (object, sgen_obj_get_descriptor (object), queue);",
+    "scan_func (object, sgen_obj_get_descriptor_safe (object), queue);"
+)
+
+
+path = Path("mono/sgen/sgen-cardtable.c")
+
+edit(
+    path,
+    "ctx.ops->scan_object (obj, sgen_obj_get_descriptor (obj), ctx.queue);",
+    "ctx.ops->scan_object (obj, sgen_obj_get_descriptor_safe (obj), ctx.queue);",
+    expected=2
+)
