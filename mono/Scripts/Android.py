@@ -27,3 +27,4 @@ edit(path, old, new)
 
 path = Path("sdks/builds/android.mk")
 edit(path, "--disable-boehm", "--enable-boehm");
+edit(path, "--with-sgen=yes", "--with-sgen=no");
