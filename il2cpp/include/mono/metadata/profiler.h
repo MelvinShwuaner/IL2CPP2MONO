@@ -32,9 +32,14 @@ MONO_BEGIN_DECLS
  */
 #define MONO_PROFILER_API_VERSION 3
 
-typedef struct _MonoProfiler MonoProfiler;
-typedef struct _MonoProfilerDesc *MonoProfilerHandle;
 
+typedef struct _MonoProfilerDesc *MonoProfilerHandle;
+struct MonoProfiler {
+
+	MonoProfilerHandle handle;
+
+	unsigned long long ncalls;
+};
 typedef void (*MonoProfilerCleanupCallback) (MonoProfiler *prof);
 
 MONO_API void mono_profiler_load (const char *desc);

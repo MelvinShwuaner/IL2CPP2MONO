@@ -51,6 +51,7 @@
 #include "il2cpp-api-types.h"
 #include "main.cpp"
 #include "mono/metadata/mono-gc.h"
+#include "mono/metadata/tabledefs.h"
 #include "mono/metadata/unity.h"
 typedef size_t il2cpp_array_size_t;
 #include <mono/jit/jit.h>
@@ -80,12 +81,22 @@ void il2cpp2mono_add_icall_interceptor(const char* name, Il2CppMethodPointer int
 Il2CppMethodPointer* il2cpp2mono_get_delegate(const char* AssemblyPath, const char* klass, const char* method, int paramcount) {
     auto pair = SplitFullNameIntoComponents(klass);
     MonoAssembly* assembly = mono_domain_assembly_open(Domain, AssemblyPath);
+    if (!assembly) {
+        return nullptr;
+    }
     MonoClass* Class = mono_class_from_name(mono_assembly_get_image(assembly), pair.first.c_str(), pair.second.c_str());
+    if (!Class) {
+        return nullptr;
+    }
     MonoMethod* Method = mono_class_get_method_from_name(Class, method, paramcount);
+    if (!Method) {
+        return nullptr;
+    }
     return (Il2CppMethodPointer*) mono_compile_method(Method);
 }
 int il2cpp_init(const char* domain_name)
 {
+    il2cpp2mono_log_JIT();
     // Use environment's default locale
     setlocale(LC_ALL, "");
     LOGCALL();
@@ -659,8 +670,14 @@ void il2cpp_set_config(const char* executablePath)
 
 void il2cpp_set_memory_callbacks(Il2CppMemoryCallbacks* callbacks)
 {
-    LOGCALL2();
-    //Memory::SetMemoryCallbacks(callbacks);
+    LOGCALL();
+    MonoAllocatorVTable table;
+    table.version = 1;
+    table.calloc = callbacks->calloc_func;
+    table.free = callbacks->free_func;
+    table.malloc = callbacks->malloc_func;
+    table.realloc = callbacks->realloc_func;
+    mono_set_allocator_vtable(&table);
 }
 static size_t RegionSize; //lol
 void il2cpp_memory_pool_set_region_size(size_t size)
@@ -835,14 +852,11 @@ bool il2cpp_class_has_references(Il2CppClass *klass)
 
 bool il2cpp_class_is_enum(const Il2CppClass *klass)
 { LOGCALL();
-    
-    
     return mono_class_is_enum((MonoClass*)klass);
 }
 
 const char *il2cpp_class_get_assemblyname(const Il2CppClass *klass)
 { LOGCALL();
-    
     return GetAssemblyName((MonoClass*)klass);
 }
 
@@ -1046,6 +1060,11 @@ bool il2cpp_field_has_attribute(FieldInfo *field, Il2CppClass *attr_class)
 
 void il2cpp_field_set_value_object(Il2CppObject* objectInstance, FieldInfo* field, Il2CppObject* value)
 { LOGCALL();
+    MonoClass* fieldClass = mono_class_from_mono_type(mono_field_get_type((MonoClassField*)field));
+    if (mono_class_is_valuetype(fieldClass)) {
+        mono_field_set_value((MonoObject*)objectInstance, (MonoClassField*)field, value ? mono_object_unbox((MonoObject*)value) : nullptr);
+        return;
+    }
     mono_field_set_value((MonoObject*)objectInstance, (MonoClassField*)field, value);
 }
 
@@ -1088,7 +1107,7 @@ bool il2cpp_gc_is_disabled()
 
 void il2cpp_gc_set_mode(Il2CppGCMode mode)
 { LOGCALL2();
-    //GarbageCollector::SetMode(mode);
+
 }
 
 bool il2cpp_gc_is_incremental()
@@ -1171,7 +1190,7 @@ void il2cpp_gc_wbarrier_set_field(Il2CppObject *obj, void **targetAddress, void 
 }
 
 bool il2cpp_gc_has_strict_wbarriers()
-{ LOGCALL();
+{ LOGCALL2();
 #if IL2CPP_ENABLE_STRICT_WRITE_BARRIERS
     return true;
 #else
@@ -1180,14 +1199,14 @@ bool il2cpp_gc_has_strict_wbarriers()
 }
 
 void il2cpp_gc_set_external_allocation_tracker(void(*func)(void*, size_t, int))
-{ LOGCALL();
+{ LOGCALL2();
 #if IL2CPP_ENABLE_WRITE_BARRIER_VALIDATION
     il2cpp::gc::WriteBarrierValidation::SetExternalAllocationTracker(func);
 #endif
 }
 
 void il2cpp_gc_set_external_wbarrier_tracker(void(*func)(void**))
-{ LOGCALL();
+{ LOGCALL2();
 #if IL2CPP_ENABLE_WRITE_BARRIER_VALIDATION
     il2cpp::gc::WriteBarrierValidation::SetExternalWriteBarrierTracker(func);
 #endif
@@ -1216,7 +1235,7 @@ uint32_t il2cpp_offset_of_array_bounds_in_array_object_header()
 
 uint32_t il2cpp_allocation_granularity()
 { LOGCALL2();
-    return static_cast<uint32_t>(2 * sizeof(void*));
+    return 2 * sizeof(void*);
 }
 
 // liveness
@@ -1439,7 +1458,7 @@ bool il2cpp_monitor_try_wait(Il2CppObject* obj, uint32_t timeout)
 
 void il2cpp_runtime_object_init_exception(Il2CppObject *obj, Il2CppException **exc)
 { LOGCALL();
-    MonoObject* mono_obj = (MonoObject*)obj;
+    auto* mono_obj = (MonoObject*)obj;
     MonoClass* klass = mono_object_get_class(mono_obj);
     MonoMethod* ctor =
         mono_class_get_method_from_name(klass, ".ctor", 0);
@@ -1461,7 +1480,7 @@ void il2cpp_runtime_object_init_exception(Il2CppObject *obj, Il2CppException **e
 }
 
 void il2cpp_runtime_unhandled_exception_policy_set(Il2CppRuntimeUnhandledExceptionPolicy value)
-{ LOGCALL();
+{ LOGCALL2();
     //Runtime::SetUnhandledExceptionPolicy(value);
 }
 
@@ -1488,12 +1507,12 @@ bool il2cpp_is_vm_thread(Il2CppThread *thread)
 // stacktrace
 
 void il2cpp_current_thread_walk_frame_stack(Il2CppFrameWalkFunc func, void* user_data)
-{ LOGCALL();
+{ LOGCALL2();
     //StackTrace::WalkFrameStack(func, user_data);
 }
 
 void il2cpp_thread_walk_frame_stack(Il2CppThread *thread, Il2CppFrameWalkFunc func, void *user_data)
-{ LOGCALL();
+{ LOGCALL2();
     //return StackTrace::WalkThreadFrameStack(thread, func, user_data);
 }
 
@@ -1758,6 +1777,7 @@ void il2cpp_class_for_each(void(*klassReportFunc)(Il2CppClass* klass, void* user
 
 void il2cpp_profiler_install(Il2CppProfiler *prof, Il2CppProfileFunc shutdown_callback)
 {LOGCALL2();
+
    // Profiler::Install(prof, shutdown_callback);
 }
 
