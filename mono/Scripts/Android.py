@@ -23,7 +23,7 @@ new = (
   "$(unity_gc_dependent_sources) $(sgen_sources)"
 )
 
-edit(path, old, new)
+#edit(path, old, new)
 
 path = Path("mono/metadata/unity-utils.h")
 edit (path, """void
