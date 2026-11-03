@@ -25,6 +25,13 @@ new = (
 
 #edit(path, old, new)
 
+path = Path("sdks/builds/android.mk")
+text = path.read_text()
+
+old = "\t--disable-boehm \\\n\t--disable-executables \\"
+new = "\t--with-sgen=no \\\n\t--disable-executables \\"
+edit(path, old, new)
+
 path = Path("mono/metadata/unity-utils.h")
 edit (path, """void
 mono_class_set_allow_gc_aware_layout""", """MONO_API void
