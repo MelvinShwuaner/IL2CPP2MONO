@@ -24,7 +24,3 @@ new = (
 )
 
 edit(path, old, new)
-
-path = Path("sdks/builds/android.mk")
-edit(path, "\t--disable-boehm \\\n", "\t--enable-boehm \\\n"
-                  "\t--with-sgen=no \\\n");
