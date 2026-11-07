@@ -7,7 +7,7 @@ it works by replacing the original libil2cpp with a fake, a larper if you will. 
 <img width="1378" height="576" alt="image" src="https://files.catbox.moe/jjc25v.png" />
 
 the mono build used for this is Unity's one. i have a github action here that can build it.
-the sgen version of mono GC is used.
+the sgen version of mono GC is used. but im going to switch to boehm
 
 on IOS, to make monomod work, there are now some internal calls which process detours directly
 
