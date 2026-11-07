@@ -1,5 +1,5 @@
 #pragma once
-#include <unordered_map>
+#include <fstream>
 #include "il2cpp-api-types.h"
 #include "mono/metadata/assembly.h"
 #include "mono/metadata/object-forward.h"
@@ -7,10 +7,10 @@
 #include <sys/mman.h>
 #include "mono/metadata/appdomain.h"
 #include <mono/metadata/threads.h>
-#include <mutex>
-#include "mono/metadata/tabledefs.h"
-static std::unordered_map<MonoMethod*, MethodInfo*> MethodCache;
-static std::mutex Mutex;
+#include "Logger.h"
+#include <mono/metadata/debug-helpers.h>
+#include <mono/metadata/profiler.h>
+#define LOGI(...) log_format(LOG_INFO, "IL2CPP2MONO", __VA_ARGS__)
 std::pair<std::string, std::string> SplitFullNameIntoComponents(const std::string& str)
 {
     size_t pos = str.rfind('.');
@@ -22,6 +22,18 @@ std::pair<std::string, std::string> SplitFullNameIntoComponents(const std::strin
         str.substr(0, pos),
         str.substr(pos + 1)
     };
+}
+std::ofstream LogPath;
+std::mutex JitLogMutex;
+void JitDone(MonoProfiler* prof, MonoMethod* method, MonoJitInfo* jinfo)
+{
+    void* codeStart = mono_jit_info_get_code_start(jinfo);
+    uint32_t codeSize = mono_jit_info_get_code_size(jinfo);
+    std::lock_guard lock(JitLogMutex);
+    LogPath << mono_method_full_name(method, true)
+         << " | Address: " << codeStart
+         << " | Size: " << codeSize
+         << '\n';
 }
 static void liveness_register_trampoline(
     gpointer* arr,

@@ -2,14 +2,17 @@
 #include <mono/jit/jit.h>
 #include <mono/metadata/assembly.h>
 #include <mono/metadata/object.h>
+#include <mono/metadata/class.h>
 #include <mono/metadata/mono-config.h>
 #include "InternalCalls.cpp"
 #include <format>
+#include <list>
+
 #include "Utils.cpp"
 #include "MonoUtils.cpp"
 #include "Platform.h"
-#define LOGW(...) log_format(LOG_WARN, "IL2CPP", __VA_ARGS__)
-#define LOGI(...) log_format(LOG_INFO, "IL2CPP", __VA_ARGS__)
+#define LOGW(...) log_format(LOG_WARN, "IL2CPP2MONO", __VA_ARGS__)
+#define LOGI(...) log_format(LOG_INFO, "IL2CPP2MONO", __VA_ARGS__)
 static std::string DllPath;
 static std::string MonoPath;
 void ExtractMonoIfNecessary() {
@@ -37,6 +40,7 @@ int InitMono(const char* domain_name) {
         LOGE("Failed to load Platform!");
         return 0;
     }
+    LogPath = std::ofstream(fmt::format("{}/IL2CPP2MONO.log", ExternalPath), std::ios::out | std::ios::trunc);
     if (DllPath.empty()) {
         DllPath = fmt::format("{}/mono", ExternalPath);
     }

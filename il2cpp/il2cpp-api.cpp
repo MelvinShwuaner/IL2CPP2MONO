@@ -65,6 +65,11 @@ typedef size_t il2cpp_array_size_t;
 #define LOGCALL2() log_format(LOG_DEBUG, "IL2CPPAPI", "missing api func called: {}", __FUNCTION__)
 
 extern "C" {
+void il2cpp2mono_log_JIT() { //for debugging
+    auto* custom_prof = (MonoProfiler*)malloc(sizeof(MonoProfiler));
+    MonoProfilerHandle handle = mono_profiler_create(custom_prof);
+    mono_profiler_set_jit_done_callback(handle, JitDone);
+}
 // il2cpp2mono api
 void il2cpp2mono_set_override_dirs(const char* dllpath, const char* monopath) {
     if (dllpath != nullptr) {
@@ -237,7 +242,11 @@ const MethodInfo* il2cpp_class_get_method_from_name(Il2CppClass* klass, const ch
 FieldInfo* il2cpp_class_get_field_from_name(Il2CppClass* klass, const char* name)
 {
    LOGCALL();
-    return (FieldInfo*)mono_class_get_field_from_name((MonoClass*)klass, name);
+    auto* field = (FieldInfo*)mono_class_get_field_from_name((MonoClass*)klass, name);
+    if (!field) {
+        LOGW("missing field {}::{}", mono_class_get_name((MonoClass*)klass), name);
+    }
+    return field;
 }
 
 const MethodInfo* il2cpp_class_get_methods(Il2CppClass* klass, void** iter)
