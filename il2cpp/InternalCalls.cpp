@@ -59,6 +59,10 @@ namespace Interceptors {
         const char* path = ExternalPath.c_str();
         return mono_string_new(mono_domain_get(), path);
     }
+    static MonoString* InternalPathFunc() {
+        const char* path = InternalPath.c_str();
+        return mono_string_new(mono_domain_get(), path);
+    }
 }
 static void LoadInterceptors() {
     //Interceptors::InterceptorMap["UnityEngine.Component::GetComponentsForListInternal"] =
@@ -66,4 +70,5 @@ static void LoadInterceptors() {
 #if !ANDROID
     AddInternalCall("UnityEngine.Application::get_persistentDataPath", (Il2CppMethodPointer)&Interceptors::PersistentDataOverride);
 #endif
+    AddInternalCall("IL2CPP2MONO.App::get_InternalPath", (Il2CppMethodPointer)&Interceptors::InternalPathFunc);
 }
